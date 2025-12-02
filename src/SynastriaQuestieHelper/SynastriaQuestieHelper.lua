@@ -117,6 +117,14 @@ function SynastriaQuestieHelper:ScanQuests()
         self:Print("Scan already in progress.")
         return
     end
+    
+    -- Check cooldown
+    local now = GetTime()
+    if self.lastScanTime and (now - self.lastScanTime) < 10 then
+        local remaining = math.ceil(10 - (now - self.lastScanTime))
+        self:Print(string.format("Scan on cooldown. %d seconds remaining.", remaining))
+        return
+    end
 
     self.isScanning = true
     self.quests = {} -- Clear previous results
@@ -133,6 +141,7 @@ end
 
 function SynastriaQuestieHelper:StopScanning()
     self.isScanning = false
+    self.lastScanTime = GetTime() -- Record scan time for cooldown
     self:UnregisterEvent(CHAT_MSG_SYSTEM)
     self:Print("Scan complete. Found " .. #self.quests .. " quests.")
     self:UpdateQuestList()
@@ -264,7 +273,6 @@ function SynastriaQuestieHelper:CreateUI()
     -- Main Frame
     local frame = AceGUI:Create("Frame")
     frame:SetTitle("Synastria Questie Helper")
-    frame:SetStatusText("Ready")
     frame:SetCallback("OnClose", function(widget) AceGUI:Release(widget) self.frame = nil end)
     frame:SetLayout("Flow")
     frame:SetWidth(500)
@@ -479,25 +487,36 @@ function SynastriaQuestieHelper:UpdateQuestList()
                     local rewards = chainRewards[chainQuest.id]
                     if rewards and #rewards > 0 then
                         for _, reward in ipairs(rewards) do
+                            local itemGroup = AceGUI:Create("SimpleGroup")
+                            itemGroup:SetFullWidth(true)
+                            itemGroup:SetLayout("Flow")
+                            
+                            -- Indentation spacer
+                            local spacer = AceGUI:Create("Label")
+                            spacer:SetText("      ")
+                            spacer:SetRelativeWidth(0.15)
+                            itemGroup:AddChild(spacer)
+                            
+                            -- Interactive item link
                             local itemBtn = AceGUI:Create("InteractiveLabel")
                             local itemName, itemLink = GetItemInfo(reward.id)
                             
                             if itemLink then
-                                -- Add indentation and choice indicator
+                                -- Add choice indicator
                                 local displayText
                                 if reward.isChoice then
-                                    displayText = "      [Choice] " .. itemLink
+                                    displayText = "[Choice] " .. itemLink
                                 else
-                                    displayText = "      " .. itemLink
+                                    displayText = itemLink
                                 end
                                 itemBtn:SetText(displayText)
                                 itemBtn:SetColor(0.9, 0.9, 0.9) -- Light color for rewards
                             else
-                                itemBtn:SetText("      [Loading...]")
+                                itemBtn:SetText("[Loading...]")
                                 itemBtn:SetColor(0.7, 0.7, 0.7)
                             end
                             
-                            itemBtn:SetFullWidth(true)
+                            itemBtn:SetRelativeWidth(0.85)
                             itemBtn:SetCallback("OnEnter", function(widget)
                                 GameTooltip:SetOwner(widget.frame, "ANCHOR_CURSOR")
                                 GameTooltip:SetHyperlink("item:" .. reward.id)
@@ -506,7 +525,9 @@ function SynastriaQuestieHelper:UpdateQuestList()
                             itemBtn:SetCallback("OnLeave", function()
                                 GameTooltip:Hide()
                             end)
-                            self.scroll:AddChild(itemBtn)
+                            itemGroup:AddChild(itemBtn)
+                            
+                            self.scroll:AddChild(itemGroup)
                         end
                     end
                 end
