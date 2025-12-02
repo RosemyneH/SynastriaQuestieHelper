@@ -244,7 +244,6 @@ function SynastriaQuestieHelper:ScanQuests()
     
         -- Defer the actual scanning to next frame to allow UI to update
     self:ScheduleTimer(function()
-        self:Print("Scanning for quests in current zone...")
         self:PerformQuestieScan(zoneId)
     end, 0.1)
 end
@@ -324,11 +323,9 @@ function SynastriaQuestieHelper:PerformQuestieScan(zoneId)
         
         self.quests = questsByZone[zoneId]
         self.totalQuestCount = #self.quests
-        self:Print(string.format("Found %d quests with attunement rewards in %s.", #self.quests, zoneName))
     else
         self.quests = {}
         self.totalQuestCount = 0
-        self:Print("No quests with attunement rewards found in this zone.")
     end
     
     self:StopScanning()
@@ -537,7 +534,7 @@ function SynastriaQuestieHelper:CreateUI()
     local frame = AceGUI:Create("Frame")
     local titleText = "Synastria Questie Helper"
     if self.totalQuestCount > 0 then
-        titleText = string.format("Synastria Questie Helper (Showing %d/%d)", #self.quests, self.totalQuestCount)
+        titleText = string.format("Synastria Questie Helper (%d quests)", self.totalQuestCount)
     end
     frame:SetTitle(titleText)
     frame:SetCallback("OnClose", function(widget)
@@ -710,7 +707,7 @@ function SynastriaQuestieHelper:UpdateQuestList()
     if self.frame then
         local titleText = "Synastria Questie Helper"
         if self.totalQuestCount > 0 then
-            titleText = string.format("Synastria Questie Helper (Showing %d/%d)", #self.quests, self.totalQuestCount)
+            titleText = string.format("Synastria Questie Helper (%d quests)", self.totalQuestCount)
         end
         self.frame:SetTitle(titleText)
     end
