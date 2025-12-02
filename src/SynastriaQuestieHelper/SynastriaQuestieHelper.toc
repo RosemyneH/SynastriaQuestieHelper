@@ -1,7 +1,7 @@
 ## Interface: 30300
 ## Title: Synastria Questie Helper
 ## Notes: Helper for finding attunement quests on Synastria
-## Author: Antigravity
+## Author: Elmegaard
 ## Version: 1.0
 ## SavedVariables: SynastriaQuestieHelperDB
 ## OptionalDeps: Ace3, SynastriaCoreLib-1.0, Questie
@@ -15,8 +15,7 @@ Libs\Ace3\AceDB-3.0\AceDB-3.0.xml
 Libs\Ace3\AceEvent-3.0\AceEvent-3.0.xml
 Libs\Ace3\AceTimer-3.0\AceTimer-3.0.xml
 
-Libs\SynastriaCoreLib-1.0\SynastriaCoreLib-1.0.lua
-Libs\SynastriaCoreLib-1.0\Modules\Attunement.lua
+Libs\SynastriaCoreLib-1.0\SynastriaCoreLib-1.0.xml
 
 QuestData.lua
 SynastriaQuestieHelper.lua
