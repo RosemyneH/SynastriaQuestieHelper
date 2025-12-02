@@ -26,6 +26,12 @@
 
 ---
 
+## Screenshot
+
+![Addon](image.png)
+
+---
+
 ## Changelog
 
 ### Version 1.0
