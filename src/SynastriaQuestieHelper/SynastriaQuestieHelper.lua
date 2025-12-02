@@ -128,30 +128,6 @@ function SynastriaQuestieHelper:CreateMinimapButton()
     self.minimapButton = button
 end
 
--- Mixin for the map button (kept for compatibility, but not used)
-SynastriaQuestieHelperMapButtonMixin = {
-    OnLoad = function() end,
-    OnHide = function() end,
-    OnMouseDown = function(_, button)
-        if button == "LeftButton" then
-            SynastriaQuestieHelper:ToggleUI()
-        end
-    end,
-    OnMouseUp = function() end,
-    OnEnter = function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_NONE")
-        GameTooltip:SetPoint("TOPRIGHT", self, "BOTTOMRIGHT", 0, 0)
-        GameTooltip:AddLine("Synastria Questie Helper", 1, 1, 1)
-        GameTooltip:AddLine("Click to toggle UI", 0.8, 0.8, 0.8)
-        GameTooltip:Show()
-    end,
-    OnLeave = function() 
-        GameTooltip:Hide()
-    end,
-    OnClick = function() end,
-    Refresh = function() end,
-}
-
 function SynastriaQuestieHelper:OnEnable()
     -- Called when the addon is enabled
 end
