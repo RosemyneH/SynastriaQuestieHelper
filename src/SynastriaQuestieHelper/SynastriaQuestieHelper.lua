@@ -363,6 +363,9 @@ function SynastriaQuestieHelper:CreateUI()
     end)
     frame:SetLayout("Flow")
     
+    -- Set frame strata lower so map appears on top
+    frame.frame:SetFrameStrata("MEDIUM")
+    
     -- Restore saved position/size or use defaults
     local pos = self.db.profile.framePos
     if pos and pos.width then
