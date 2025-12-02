@@ -188,54 +188,163 @@ function SynastriaQuestieHelper:ScanQuests()
     self.isLoading = true
     self.quests = {} -- Clear previous results
     self.totalQuestCount = 0 -- Reset total count
-    self:RegisterEvent(CHAT_MSG_SYSTEM)
     
     -- Update UI to show loading state
     self:UpdateQuestList()
     
-    -- Send the command to the server
-    SendChatMessage(".findquest old", "SAY")
+    -- Lazy-load QuestieDB
+    if not self.QuestieDB and QuestieLoader then
+        self.QuestieDB = QuestieLoader:ImportModule("QuestieDB")
+    end
     
-    self:Print("Scanning for quests...")
+    if not self.QuestieDB then
+        self:Print("Questie addon not detected. Please install Questie.")
+        self.isScanning = false
+        self.isLoading = false
+        return
+    end
     
-    -- Set a timeout to stop scanning if no response
-    self:ScheduleTimer("StopScanning", 5)
+    -- Get current zone using GetRealZoneText
+    local zoneName = GetRealZoneText()
+    
+    if not zoneName or zoneName == "" then
+        self:Print("Could not detect current zone.")
+        self.isScanning = false
+        self.isLoading = false
+        return
+    end
+    
+    -- Lazy-load ZoneDB and C_Map compat
+    if not self.ZoneDB and QuestieLoader then
+        self.ZoneDB = QuestieLoader:ImportModule("ZoneDB")
+    end
+    if not self.C_Map and QuestieCompat then
+        self.C_Map = QuestieCompat.C_Map
+    end
+    
+    -- Find AreaId by matching zone name
+    local zoneId = nil
+    if self.ZoneDB and self.ZoneDB.private and self.ZoneDB.private.areaIdToUiMapId and self.C_Map then
+        for areaId, uiMapId in pairs(self.ZoneDB.private.areaIdToUiMapId) do
+            local mapInfo = self.C_Map.GetMapInfo(uiMapId)
+            if mapInfo and mapInfo.name == zoneName then
+                zoneId = areaId
+                break
+            end
+        end
+    end
+    
+    if not zoneId then
+        self:Print(string.format("Could not find AreaId for zone: %s", zoneName))
+        self.isScanning = false
+        self.isLoading = false
+        return
+    end
+    
+    
+        -- Defer the actual scanning to next frame to allow UI to update
+    self:ScheduleTimer(function()
+        self:Print("Scanning for quests in current zone...")
+        self:PerformQuestieScan(zoneId)
+    end, 0.1)
+end
+
+function SynastriaQuestieHelper:PerformQuestieScan(zoneId)
+    if not self.QuestieDB or not self.QuestieDB.QuestPointers then
+        self:Print("Questie database not available.")
+        self:StopScanning()
+        return
+    end
+    
+    -- Lazy-load ZoneDB and QuestieCompat
+    if not self.ZoneDB and QuestieLoader then
+        self.ZoneDB = QuestieLoader:ImportModule("ZoneDB")
+    end
+    if not self.C_Map and QuestieCompat then
+        self.C_Map = QuestieCompat.C_Map
+    end
+    
+    local questsByZone = {} -- Group quests by zoneOrSort
+    local checkedCount = 0
+    
+    -- Iterate through all quests in Questie's database
+    for questId, _ in pairs(self.QuestieDB.QuestPointers) do
+        checkedCount = checkedCount + 1
+        
+        -- Check if this quest has attunement rewards
+        local itemDBRewards = self:GetQuestRewardsFromItemDB(questId)
+        
+        if itemDBRewards and #itemDBRewards > 0 then
+            local questData = self.QuestieDB.GetQuest(questId)
+            
+            if questData and questData.name then
+                local questZone = nil
+                
+                -- Try to get zone from zoneOrSort first
+                if questData.zoneOrSort and questData.zoneOrSort > 0 then
+                    questZone = questData.zoneOrSort
+                else
+                    -- Fallback to starter location zone
+                    local x, y, starterZoneId = self:GetQuestStarterCoords(questId)
+                    if starterZoneId then
+                        questZone = starterZoneId
+                    end
+                end
+                
+                if questZone then
+                    -- Group by zone
+                    if not questsByZone[questZone] then
+                        questsByZone[questZone] = {}
+                    end
+                    
+                    table.insert(questsByZone[questZone], {
+                        id = questId,
+                        name = questData.name,
+                        reward = nil
+                    })
+                end
+            end
+        end
+    end
+    
+    -- Check if current zone has quests
+    if questsByZone[zoneId] and #questsByZone[zoneId] > 0 then
+        local zoneName = "Unknown"
+        
+        -- Get zone name from ZoneDB
+        if self.ZoneDB and self.C_Map then
+            local uiMapId = self.ZoneDB:GetUiMapIdByAreaId(zoneId)
+            if uiMapId then
+                local mapInfo = self.C_Map.GetMapInfo(uiMapId)
+                if mapInfo then
+                    zoneName = mapInfo.name
+                end
+            end
+        end
+        
+        self.quests = questsByZone[zoneId]
+        self.totalQuestCount = #self.quests
+        self:Print(string.format("Found %d quests with attunement rewards in %s.", #self.quests, zoneName))
+    else
+        self.quests = {}
+        self.totalQuestCount = 0
+        self:Print("No quests with attunement rewards found in this zone.")
+    end
+    
+    self:StopScanning()
+end
+
+function SynastriaQuestieHelper:TableSize(t)
+    local count = 0
+    for _ in pairs(t) do count = count + 1 end
+    return count
 end
 
 function SynastriaQuestieHelper:StopScanning()
     self.isScanning = false
     self.isLoading = false
     self.lastScanTime = GetTime() -- Record scan time for cooldown
-    self:UnregisterEvent(CHAT_MSG_SYSTEM)
-    self:Print("Scan complete. Found " .. #self.quests .. " quests.")
     self:UpdateQuestList()
-end
-
-function SynastriaQuestieHelper:CHAT_MSG_SYSTEM(event, message)
-    if not self.isScanning then return end
-
-    -- Check for total quest count message
-    -- Format: "Found 20 possible quests, showing 1 to 10:"
-    local totalCount = message:match("Found (%d+) possible quests")
-    if totalCount then
-        self.totalQuestCount = tonumber(totalCount)
-        self:UpdateQuestList()
-        return
-    end
-    
-    -- Parse individual quest messages
-    -- Format seen: "1. [411] |cffffff00|Hquest:411:12|h[The Prodigal Lich Returns]|h|r"
-    -- Regex: Match [ID] then find the name inside |h[Name]|h
-    local questId, questName = message:match("%[(%d+)%].-|h%[(.-)%]|h")
-    
-    if questId and questName then
-        table.insert(self.quests, {
-            id = tonumber(questId),
-            name = questName,
-            reward = nil
-        })
-        self:UpdateQuestList()
-    end
 end
 
 function SynastriaQuestieHelper:BuildQuestItemLookup()
