@@ -848,30 +848,67 @@ function SynastriaQuestieHelper:UpdateQuestList()
                                 itemIcon:SetImage(itemTexture)
                                 itemIcon:SetImageSize(16, 16)
                                 itemIcon:SetWidth(24)
+                                
+                                -- Hover shows tooltip (for already cached items)
+                                itemIcon:SetCallback("OnEnter", function(widget)
+                                    GameTooltip:SetOwner(widget.frame, "ANCHOR_CURSOR")
+                                    GameTooltip:SetHyperlink("item:" .. reward.id)
+                                    GameTooltip:Show()
+                                end)
+                                
+                                itemIcon:SetCallback("OnLeave", function()
+                                    GameTooltip:Hide()
+                                end)
+                                
+                                -- Click for item ref
+                                itemIcon:SetCallback("OnClick", function(widget, _, button)
+                                    if itemLink then
+                                        SetItemRef("item:" .. reward.id, itemLink, button)
+                                    end
+                                end)
                             else
                                 -- Loading placeholder
                                 itemIcon:SetImage("Interface\\Icons\\INV_Misc_QuestionMark")
                                 itemIcon:SetImageSize(16, 16)
                                 itemIcon:SetWidth(24)
-                            end
-                            
-                            -- Hover shows tooltip (works even if item not cached)
-                            itemIcon:SetCallback("OnEnter", function(widget)
-                                GameTooltip:SetOwner(widget.frame, "ANCHOR_CURSOR")
-                                GameTooltip:SetHyperlink("item:" .. reward.id)
-                                GameTooltip:Show()
-                            end)
-                            
-                            itemIcon:SetCallback("OnLeave", function()
-                                GameTooltip:Hide()
-                            end)
-                            
-                            -- Click for item ref
-                            itemIcon:SetCallback("OnClick", function(widget, _, button)
-                                if itemLink then
-                                    SetItemRef("item:" .. reward.id, itemLink, button)
+                                
+                                -- Set up a timer to check when item gets cached
+                                local checkTimer
+                                local function checkItemCached()
+                                    local _, _, _, _, _, _, _, _, _, newTexture = GetItemInfo(reward.id)
+                                    if newTexture then
+                                        itemIcon:SetImage(newTexture)
+                                        if checkTimer then
+                                            self:CancelTimer(checkTimer)
+                                            checkTimer = nil
+                                        end
+                                    end
                                 end
-                            end)
+                                
+                                -- Start checking when hover triggers caching
+                                itemIcon:SetCallback("OnEnter", function(widget)
+                                    GameTooltip:SetOwner(widget.frame, "ANCHOR_CURSOR")
+                                    GameTooltip:SetHyperlink("item:" .. reward.id)
+                                    GameTooltip:Show()
+                                    
+                                    -- Start periodic check for cache update
+                                    if not checkTimer then
+                                        checkTimer = self:ScheduleRepeatingTimer(checkItemCached, 0.1)
+                                    end
+                                end)
+                                
+                                itemIcon:SetCallback("OnLeave", function()
+                                    GameTooltip:Hide()
+                                end)
+                                
+                                -- Click for item ref
+                                itemIcon:SetCallback("OnClick", function(widget, _, button)
+                                    local _, link = GetItemInfo(reward.id)
+                                    if link then
+                                        SetItemRef("item:" .. reward.id, link, button)
+                                    end
+                                end)
+                            end
                             
                             rewardGroup:AddChild(itemIcon)
                         end
