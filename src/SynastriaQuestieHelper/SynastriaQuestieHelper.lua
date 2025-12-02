@@ -695,38 +695,30 @@ function SynastriaQuestieHelper:UpdateQuestList()
                                 itemIcon:SetImage(itemTexture)
                                 itemIcon:SetImageSize(16, 16)
                                 itemIcon:SetWidth(24)
-                                
-                                -- Set label for choice indicator
-                                if reward.isChoice then
-                                    itemIcon:SetLabel("[C]")
-                                else
-                                    itemIcon:SetLabel("")
-                                end
-                                
-                                -- Hover shows tooltip
-                                itemIcon:SetCallback("OnEnter", function(widget)
-                                    GameTooltip:SetOwner(widget.frame, "ANCHOR_CURSOR")
-                                    GameTooltip:SetHyperlink("item:" .. reward.id)
-                                    GameTooltip:Show()
-                                end)
-                                
-                                itemIcon:SetCallback("OnLeave", function()
-                                    GameTooltip:Hide()
-                                end)
-                                
-                                -- Click for item ref
-                                itemIcon:SetCallback("OnClick", function(widget, _, button)
-                                    if itemLink then
-                                        SetItemRef("item:" .. reward.id, itemLink, button)
-                                    end
-                                end)
                             else
                                 -- Loading placeholder
                                 itemIcon:SetImage("Interface\\Icons\\INV_Misc_QuestionMark")
                                 itemIcon:SetImageSize(16, 16)
                                 itemIcon:SetWidth(24)
-                                itemIcon:SetLabel("[?]")
                             end
+                            
+                            -- Hover shows tooltip (works even if item not cached)
+                            itemIcon:SetCallback("OnEnter", function(widget)
+                                GameTooltip:SetOwner(widget.frame, "ANCHOR_CURSOR")
+                                GameTooltip:SetHyperlink("item:" .. reward.id)
+                                GameTooltip:Show()
+                            end)
+                            
+                            itemIcon:SetCallback("OnLeave", function()
+                                GameTooltip:Hide()
+                            end)
+                            
+                            -- Click for item ref
+                            itemIcon:SetCallback("OnClick", function(widget, _, button)
+                                if itemLink then
+                                    SetItemRef("item:" .. reward.id, itemLink, button)
+                                end
+                            end)
                             
                             rewardGroup:AddChild(itemIcon)
                         end
