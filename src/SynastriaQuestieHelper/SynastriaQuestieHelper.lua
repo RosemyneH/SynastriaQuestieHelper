@@ -17,83 +17,140 @@ function SynastriaQuestieHelper:OnInitialize()
         profile = {
             hideCompleted = true, -- Hide completed quests by default
             framePos = {}, -- Store frame position and size
+            minimapButton = {
+                hide = false,
+                position = 225,
+            },
         },
     }, true)
 
     self:RegisterChatCommand("synastriaquestiehelper", "OnSlashCommand")
 
-    -- Minimap Button (Simple implementation since LibDBIcon is missing)
+    -- Create minimap button
     self:CreateMinimapButton()
 end
 
 function SynastriaQuestieHelper:CreateMinimapButton()
-    local LDB = LibStub("LibDataBroker-1.1", true)
-    local dataObj
+    local button = CreateFrame("Button", "SynastriaQuestieHelperMinimapButton", Minimap)
+    button:SetFrameStrata("MEDIUM")
+    button:SetFrameLevel(8)
+    button:SetSize(31, 31)
+    button:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+    button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     
-    if LDB then
-        dataObj = LDB:NewDataObject("SynastriaQuestieHelper", {
-            type = "launcher",
-            text = "SQH",
-            icon = "Interface\\Icons\\Inv_Misc_QuestionMark",
-            OnClick = function(_, button)
-                if button == "LeftButton" then
-                    self:ToggleUI()
-                end
-            end,
-            OnTooltipShow = function(tooltip)
-                tooltip:AddLine("Synastria Questie Helper")
-                tooltip:AddLine("Click to toggle UI")
-            end,
-        })
-    end
-
-    -- Since we don't have LibDBIcon, we need a manual button if the user doesn't have a broker display.
-    -- But usually LDB is enough if they have TitanPanel/Bazooka.
-    -- The user specifically asked for a minimap button.
-    -- I will create a simple frame for it.
+    -- Icon background
+    local background = button:CreateTexture(nil, "BACKGROUND")
+    background:SetSize(20, 20)
+    background:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+    background:SetPoint("CENTER", 0, 1)
     
-    local mmBtn = CreateFrame("Button", "SynastriaQuestieHelperMinimapButton", Minimap)
-    mmBtn:SetFrameStrata("MEDIUM")
-    mmBtn:SetWidth(31)
-    mmBtn:SetHeight(31)
-    mmBtn:SetPoint("TOPLEFT", Minimap, "TOPLEFT") -- Default position
-    mmBtn:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+    -- Icon
+    local icon = button:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(18, 18)
+    icon:SetTexture("Interface\\AddOns\\Questie-335\\Icons\\available")
+    icon:SetPoint("CENTER", background, "CENTER", 0, 0)
+    button.icon = icon
     
-    local overlay = mmBtn:CreateTexture(nil, "OVERLAY")
-    overlay:SetWidth(53)
-    overlay:SetHeight(53)
-    overlay:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
-    overlay:SetPoint("TOPLEFT")
+    -- Border
+    local border = button:CreateTexture(nil, "OVERLAY")
+    border:SetSize(52, 52)
+    border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    border:SetPoint("TOPLEFT", 0, 0)
     
-    local icon = mmBtn:CreateTexture(nil, "BACKGROUND")
-    icon:SetWidth(20)
-    icon:SetHeight(20)
-    icon:SetTexture("Interface\\Icons\\Inv_Misc_QuestionMark")
-    icon:SetPoint("CENTER", 0, 1)
-    
-    mmBtn:SetScript("OnClick", function(_, button)
-        if button == "LeftButton" then
-            self:ToggleUI()
-        end
-    end)
-    
-    mmBtn:SetScript("OnEnter", function(self)
+    -- Tooltip
+    button:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:AddLine("Synastria Questie Helper")
-        GameTooltip:AddLine("Click to toggle UI")
+        GameTooltip:AddLine("Synastria Questie Helper", 1, 1, 1)
+        GameTooltip:AddLine("Left-click: Toggle UI", 0.8, 0.8, 0.8)
         GameTooltip:Show()
     end)
     
-    mmBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    button:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
     
-    -- Dragging functionality
-    mmBtn:RegisterForDrag("LeftButton")
-    mmBtn:SetMovable(true)
-    mmBtn:SetScript("OnDragStart", function(self) self:StartMoving() end)
-    mmBtn:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+    -- Click handler
+    button:SetScript("OnClick", function(self, btn)
+        if btn == "LeftButton" then
+            SynastriaQuestieHelper:ToggleUI()
+        end
+    end)
     
-    self.minimapButton = mmBtn
+    -- Dragging
+    button:RegisterForDrag("LeftButton")
+    button:SetScript("OnDragStart", function(self)
+        self:LockHighlight()
+        self.isDragging = true
+    end)
+    
+    button:SetScript("OnDragStop", function(self)
+        self:UnlockHighlight()
+        self.isDragging = false
+        local position = self:GetPosition()
+        SynastriaQuestieHelper.db.profile.minimapButton.position = position
+    end)
+    
+    button:SetScript("OnUpdate", function(self)
+        if self.isDragging then
+            local mx, my = Minimap:GetCenter()
+            local px, py = GetCursorPosition()
+            local scale = Minimap:GetEffectiveScale()
+            px, py = px / scale, py / scale
+            local angle = math.deg(math.atan2(py - my, px - mx))
+            self:SetPosition(angle)
+        end
+    end)
+    
+    -- Position functions
+    function button:SetPosition(angle)
+        local x = math.cos(math.rad(angle))
+        local y = math.sin(math.rad(angle))
+        local minimapShape = GetMinimapShape and GetMinimapShape() or "ROUND"
+        local radius = (minimapShape == "SQUARE") and 85 or 80
+        self:SetPoint("CENTER", Minimap, "CENTER", x * radius, y * radius)
+    end
+    
+    function button:GetPosition()
+        local mx, my = Minimap:GetCenter()
+        local bx, by = self:GetCenter()
+        local angle = math.deg(math.atan2(by - my, bx - mx))
+        return angle
+    end
+    
+    -- Set initial position
+    button:SetPosition(self.db.profile.minimapButton.position)
+    
+    -- Show/hide based on settings
+    if self.db.profile.minimapButton.hide then
+        button:Hide()
+    end
+    
+    self.minimapButton = button
 end
+
+-- Mixin for the map button (kept for compatibility, but not used)
+SynastriaQuestieHelperMapButtonMixin = {
+    OnLoad = function() end,
+    OnHide = function() end,
+    OnMouseDown = function(_, button)
+        if button == "LeftButton" then
+            SynastriaQuestieHelper:ToggleUI()
+        end
+    end,
+    OnMouseUp = function() end,
+    OnEnter = function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_NONE")
+        GameTooltip:SetPoint("TOPRIGHT", self, "BOTTOMRIGHT", 0, 0)
+        GameTooltip:AddLine("Synastria Questie Helper", 1, 1, 1)
+        GameTooltip:AddLine("Click to toggle UI", 0.8, 0.8, 0.8)
+        GameTooltip:Show()
+    end,
+    OnLeave = function() 
+        GameTooltip:Hide()
+    end,
+    OnClick = function() end,
+    Refresh = function() end,
+}
 
 function SynastriaQuestieHelper:OnEnable()
     -- Called when the addon is enabled
