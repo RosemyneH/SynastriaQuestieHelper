@@ -216,7 +216,7 @@ end
 function SynastriaQuestieHelper:GetQuestStarterCoords(questId)
     if not self.QuestieDB then return nil end
     
-    -- Iterate through NPCs to find one that starts this quest
+    -- Check NPCs first
     if self.QuestieDB.NPCPointers then
         for npcId in pairs(self.QuestieDB.NPCPointers) do
             local npcData = self.QuestieDB.QueryNPCSingle(npcId, "questStarts")
@@ -226,6 +226,31 @@ function SynastriaQuestieHelper:GetQuestStarterCoords(questId)
                     if qId == questId then
                         -- Found NPC that starts this quest, get spawns
                         local spawns = self.QuestieDB.QueryNPCSingle(npcId, "spawns")
+                        if spawns and type(spawns) == "table" then
+                            -- spawns is {[zoneId] = {{x,y}, {x,y}}}
+                            for zoneId, coords in pairs(spawns) do
+                                if coords and coords[1] and coords[1][1] and coords[1][2] then
+                                    return coords[1][1], coords[1][2], zoneId
+                                end
+                            end
+                        end
+                        break
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Check Objects if no NPC found
+    if self.QuestieDB.ObjectPointers then
+        for objId in pairs(self.QuestieDB.ObjectPointers) do
+            local objData = self.QuestieDB.QueryObjectSingle(objId, "questStarts")
+            if objData and type(objData) == "table" then
+                -- Check if this object starts our quest
+                for _, qId in ipairs(objData) do
+                    if qId == questId then
+                        -- Found object that starts this quest, get spawns
+                        local spawns = self.QuestieDB.QueryObjectSingle(objId, "spawns")
                         if spawns and type(spawns) == "table" then
                             -- spawns is {[zoneId] = {{x,y}, {x,y}}}
                             for zoneId, coords in pairs(spawns) do
