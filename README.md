@@ -11,12 +11,19 @@
 
 ---
 
+## Features
+
+- **TomTom**: Left click a coordinate to get a waypoint in TomTom (requires the TomTom addon).
+- **Wowhead Link**: Right click a quest to get a popup with a link to the quest on wowhead.
+
+---
+
 ## Quick Start
 
 1. **Download & Extract**: Place the `SynastriaQuestieHelper` folder in your `Interface/AddOns/` directory.
 2. **Enable**: Activate Synastria Questie Helper in your WoW AddOns menu.
 3. **Click the Minimap Button**: Look for the yellow exclamation mark on your minimap.
-4. **Scan Zone**: Click the "Scan Zone" button to find old quests with attunement rewards.
+4. **Scan Zone**: Click the "Scan Zone" button to find quests with attunement rewards.
 
 ---
 
@@ -35,14 +42,20 @@
 
 ## Changelog
 
-### Version 1.0
+### Version 1.2
 
-- Initial release
+- Added right click for wowhead url
+- Rewrote quest fetching to allow more than 10 quests
+- Fixed item icons not re-loading caching
 
 ### Version 1.1
 
 - Fixed error
 - Added TomTom support
+
+### Version 1.0
+
+- Initial release
 
 ---
 
