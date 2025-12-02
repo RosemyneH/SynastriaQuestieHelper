@@ -9,7 +9,6 @@ local CHAT_MSG_SYSTEM = "CHAT_MSG_SYSTEM"
 SynastriaQuestieHelper.quests = {}
 SynastriaQuestieHelper.totalQuestCount = 0
 SynastriaQuestieHelper.isScanning = false
-SynastriaQuestieHelper.coordCache = {} -- Cache quest starter coordinates
 
 function SynastriaQuestieHelper:OnInitialize()
     self.db = LibStub("AceDB-3.0"):New("SynastriaQuestieHelperDB", {
@@ -134,7 +133,6 @@ function SynastriaQuestieHelper:ScanQuests()
     self.isScanning = true
     self.quests = {} -- Clear previous results
     self.totalQuestCount = 0 -- Reset total count
-    self.coordCache = {} -- Clear coordinate cache
     self:RegisterEvent(CHAT_MSG_SYSTEM)
     
     -- Send the command to the server
@@ -151,39 +149,6 @@ function SynastriaQuestieHelper:StopScanning()
     self.lastScanTime = GetTime() -- Record scan time for cooldown
     self:UnregisterEvent(CHAT_MSG_SYSTEM)
     self:Print("Scan complete. Found " .. #self.quests .. " quests.")
-    
-    -- Build item lookup table in background first (only once)
-    if not self.questItemLookup then
-        self:ScheduleTimer(function() 
-            self:BuildQuestItemLookup()
-            self:UpdateQuestList()
-            -- Then load coordinates
-            self:ScheduleTimer(function() self:LoadCoordinatesAsync() end, 0.1)
-        end, 0.1)
-    else
-        self:UpdateQuestList()
-        self:ScheduleTimer(function() self:LoadCoordinatesAsync() end, 0.1)
-    end
-end
-
-function SynastriaQuestieHelper:LoadCoordinatesAsync()
-    -- Load coordinates for all quests in background
-    for _, quest in ipairs(self.quests) do
-        local chain = self:GetQuestChain(quest.id)
-        if #chain == 0 then
-            chain = {{id = quest.id, name = quest.name}}
-        end
-        
-        for _, chainQuest in ipairs(chain) do
-            local status = self:GetQuestStatus(chainQuest.id)
-            if status == "available" and not self.coordCache[chainQuest.id] then
-                -- Load coordinates for this quest
-                self:GetQuestStarterCoords(chainQuest.id)
-            end
-        end
-    end
-    
-    -- Refresh display after loading coordinates
     self:UpdateQuestList()
 end
 
@@ -210,11 +175,10 @@ function SynastriaQuestieHelper:CHAT_MSG_SYSTEM(event, message)
             name = questName,
             reward = nil
         })
-        -- Don't update UI during scan, wait until complete
+        self:UpdateQuestList()
     end
 end
 
--- Build reverse lookup table for quest->items (called once)
 function SynastriaQuestieHelper:BuildQuestItemLookup()
     if self.questItemLookup then return end
     
@@ -259,65 +223,58 @@ end
 
 -- Get quest starter coordinates from Questie
 function SynastriaQuestieHelper:GetQuestStarterCoords(questId)
-    -- Check cache first
-    if self.coordCache[questId] ~= nil then
-        if self.coordCache[questId] == false then
-            return nil
-        else
-            return self.coordCache[questId].x, self.coordCache[questId].y, self.coordCache[questId].zone
-        end
-    end
+    if not self.QuestieDB then return nil end
     
-    if not self.QuestieDB then 
-        self.coordCache[questId] = false
-        return nil 
-    end
-    
-    local function checkStarter(pointersTable, queryFunc, queryName)
-        if not pointersTable then return nil end
-        
-        local count = 0
-        for starterId in pairs(pointersTable) do
-            count = count + 1
-            -- Limit iterations to prevent lag
-            if count > 5000 then break end
-            
-            local startsData = queryFunc(starterId, "questStarts")
-            if startsData and type(startsData) == "table" then
-                for _, qId in ipairs(startsData) do
+    -- Check NPCs first
+    if self.QuestieDB.NPCPointers then
+        for npcId in pairs(self.QuestieDB.NPCPointers) do
+            local npcData = self.QuestieDB.QueryNPCSingle(npcId, "questStarts")
+            if npcData and type(npcData) == "table" then
+                -- Check if this NPC starts our quest
+                for _, qId in ipairs(npcData) do
                     if qId == questId then
-                        local spawns = queryFunc(starterId, "spawns")
+                        -- Found NPC that starts this quest, get spawns
+                        local spawns = self.QuestieDB.QueryNPCSingle(npcId, "spawns")
                         if spawns and type(spawns) == "table" then
+                            -- spawns is {[zoneId] = {{x,y}, {x,y}}}
                             for zoneId, coords in pairs(spawns) do
                                 if coords and coords[1] and coords[1][1] and coords[1][2] then
-                                    local result = {x = coords[1][1], y = coords[1][2], zone = zoneId}
-                                    self.coordCache[questId] = result
-                                    return result.x, result.y, result.zone
+                                    return coords[1][1], coords[1][2], zoneId
                                 end
                             end
                         end
-                        return nil
+                        break
                     end
                 end
             end
         end
-        return nil
     end
     
-    -- Check NPCs first
-    local x, y, z = checkStarter(self.QuestieDB.NPCPointers, function(id, key) 
-        return self.QuestieDB.QueryNPCSingle(id, key) 
-    end, "NPC")
-    if x then return x, y, z end
+    -- Check Objects if no NPC found
+    if self.QuestieDB.ObjectPointers then
+        for objId in pairs(self.QuestieDB.ObjectPointers) do
+            local objData = self.QuestieDB.QueryObjectSingle(objId, "questStarts")
+            if objData and type(objData) == "table" then
+                -- Check if this object starts our quest
+                for _, qId in ipairs(objData) do
+                    if qId == questId then
+                        -- Found object that starts this quest, get spawns
+                        local spawns = self.QuestieDB.QueryObjectSingle(objId, "spawns")
+                        if spawns and type(spawns) == "table" then
+                            -- spawns is {[zoneId] = {{x,y}, {x,y}}}
+                            for zoneId, coords in pairs(spawns) do
+                                if coords and coords[1] and coords[1][1] and coords[1][2] then
+                                    return coords[1][1], coords[1][2], zoneId
+                                end
+                            end
+                        end
+                        break
+                    end
+                end
+            end
+        end
+    end
     
-    -- Check Objects
-    x, y, z = checkStarter(self.QuestieDB.ObjectPointers, function(id, key) 
-        return self.QuestieDB.QueryObjectSingle(id, key) 
-    end, "Object")
-    if x then return x, y, z end
-    
-    -- Cache negative result
-    self.coordCache[questId] = false
     return nil
 end
 
@@ -631,13 +588,12 @@ function SynastriaQuestieHelper:UpdateQuestList()
                     -- Use numbers for all quests in chain
                     local prefix = string.format("  %d. ", i)
                     
-                    -- Add coordinates for available quests (will be updated async if needed)
+                    -- Add coordinates for available quests
                     local questText = chainQuest.name
                     if status == "available" then
-                        -- Check if we already have cached coords
-                        if self.coordCache[chainQuest.id] and self.coordCache[chainQuest.id] ~= false then
-                            local cached = self.coordCache[chainQuest.id]
-                            questText = string.format("%s (%.1f, %.1f)", chainQuest.name, cached.x, cached.y)
+                        local x, y, zoneId = self:GetQuestStarterCoords(chainQuest.id)
+                        if x and y then
+                            questText = string.format("%s (%.1f, %.1f)", chainQuest.name, x, y)
                         end
                     end
                     
