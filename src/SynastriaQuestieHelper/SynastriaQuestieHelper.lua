@@ -13,10 +13,10 @@ function SynastriaQuestieHelper:OnInitialize()
     self.db = LibStub("AceDB-3.0"):New("SynastriaQuestieHelperDB", {
         profile = {
             hideCompleted = true, -- Hide completed quests by default
+            framePos = {}, -- Store frame position and size
         },
     }, true)
 
-    self:RegisterChatCommand("sqh", "OnSlashCommand")
     self:RegisterChatCommand("synastriaquestiehelper", "OnSlashCommand")
 
     -- Minimap Button (Simple implementation since LibDBIcon is missing)
@@ -35,14 +35,11 @@ function SynastriaQuestieHelper:CreateMinimapButton()
             OnClick = function(_, button)
                 if button == "LeftButton" then
                     self:ToggleUI()
-                elseif button == "RightButton" then
-                    self:ScanQuests()
                 end
             end,
             OnTooltipShow = function(tooltip)
                 tooltip:AddLine("Synastria Questie Helper")
-                tooltip:AddLine("Left-click to toggle UI")
-                tooltip:AddLine("Right-click to scan")
+                tooltip:AddLine("Click to toggle UI")
             end,
         })
     end
@@ -74,16 +71,13 @@ function SynastriaQuestieHelper:CreateMinimapButton()
     mmBtn:SetScript("OnClick", function(_, button)
         if button == "LeftButton" then
             self:ToggleUI()
-        else
-            self:ScanQuests()
         end
     end)
     
     mmBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:AddLine("Synastria Questie Helper")
-        GameTooltip:AddLine("Left-click to toggle UI")
-        GameTooltip:AddLine("Right-click to scan")
+        GameTooltip:AddLine("Click to toggle UI")
         GameTooltip:Show()
     end)
     
@@ -103,13 +97,22 @@ function SynastriaQuestieHelper:OnEnable()
 end
 
 function SynastriaQuestieHelper:OnSlashCommand(input)
-    if not input or input:trim() == "" then
+    if input:trim() == "toggle" then
         self:ToggleUI()
-    elseif input:trim() == "scan" then
-        self:ScanQuests()
+    elseif input:trim() == "reset" then
+        self:ResetFramePosition()
     else
-        self:Print("Usage: /sqh [scan]")
+        self:Print("Usage: /synastriaquestiehelper [toggle\|reset]")
     end
+end
+
+function SynastriaQuestieHelper:ResetFramePosition()
+    self.db.profile.framePos = {}
+    if self.frame then
+        self.frame:Hide()
+        self.frame = nil
+    end
+    self:Print("Frame position reset. Open the UI again to see the default position.")
 end
 
 function SynastriaQuestieHelper:ScanQuests()
@@ -273,10 +276,34 @@ function SynastriaQuestieHelper:CreateUI()
     -- Main Frame
     local frame = AceGUI:Create("Frame")
     frame:SetTitle("Synastria Questie Helper")
-    frame:SetCallback("OnClose", function(widget) AceGUI:Release(widget) self.frame = nil end)
+    frame:SetCallback("OnClose", function(widget)
+        -- Save position and size before closing
+        local status = widget.status or widget.localstatus
+        if status then
+            self.db.profile.framePos = {
+                width = status.width,
+                height = status.height,
+                top = status.top,
+                left = status.left,
+            }
+        end
+        AceGUI:Release(widget)
+        self.frame = nil
+    end)
     frame:SetLayout("Flow")
-    frame:SetWidth(500)
-    frame:SetHeight(400)
+    
+    -- Restore saved position/size or use defaults
+    local pos = self.db.profile.framePos
+    if pos and pos.width then
+        frame:SetWidth(pos.width)
+        frame:SetHeight(pos.height)
+        if pos.top and pos.left then
+            frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", pos.left, pos.top)
+        end
+    else
+        frame:SetWidth(500)
+        frame:SetHeight(400)
+    end
     
     -- Make frame closable with ESC key
     _G["SynastriaQuestieHelperFrame"] = frame.frame
