@@ -18,6 +18,8 @@ function SynastriaQuestieHelper:OnInitialize()
     self.db = LibStub("AceDB-3.0"):New("SynastriaQuestieHelperDB", {
         profile = {
             hideCompleted = true, -- Hide completed quests by default
+            showWrongFaction = false, -- Show quests for other faction
+            showLevelTooLow = false, -- Show quests where player is below required level
             framePos = {}, -- Store frame position and size
             minimapButton = {
                 hide = false,
@@ -27,9 +29,64 @@ function SynastriaQuestieHelper:OnInitialize()
     }, true)
 
     self:RegisterChatCommand("synastriaquestiehelper", "OnSlashCommand")
+    
+    -- Setup options
+    self:SetupOptions()
 
     -- Create minimap button
     self:CreateMinimapButton()
+end
+
+function SynastriaQuestieHelper:SetupOptions()
+    local AceConfig = LibStub("AceConfig-3.0")
+    local AceConfigDialog = LibStub("AceConfigDialog-3.0")
+    
+    local options = {
+        name = "Synastria Questie Helper",
+        type = "group",
+        args = {
+            general = {
+                name = "General Settings",
+                type = "group",
+                order = 1,
+                args = {
+                    hideCompleted = {
+                        name = "Hide Completed Quests",
+                        desc = "Hide quests that have already been completed",
+                        type = "toggle",
+                        order = 1,
+                        get = function() return self.db.profile.hideCompleted end,
+                        set = function(_, value)
+                            self.db.profile.hideCompleted = value
+                        end,
+                    },
+                    showWrongFaction = {
+                        name = "Show Wrong Faction Quests",
+                        desc = "Show quests that are for the opposite faction (Alliance/Horde)",
+                        type = "toggle",
+                        order = 2,
+                        get = function() return self.db.profile.showWrongFaction end,
+                        set = function(_, value)
+                            self.db.profile.showWrongFaction = value
+                        end,
+                    },
+                    showLevelTooLow = {
+                        name = "Show High Level Quests",
+                        desc = "Show quests where your level is below the minimum required level to accept them",
+                        type = "toggle",
+                        order = 3,
+                        get = function() return self.db.profile.showLevelTooLow end,
+                        set = function(_, value)
+                            self.db.profile.showLevelTooLow = value
+                        end,
+                    },
+                },
+            },
+        },
+    }
+    
+    AceConfig:RegisterOptionsTable("SynastriaQuestieHelper", options)
+    AceConfigDialog:AddToBlizOptions("SynastriaQuestieHelper", "Synastria Questie Helper")
 end
 
 function SynastriaQuestieHelper:CreateMinimapButton()
@@ -64,6 +121,7 @@ function SynastriaQuestieHelper:CreateMinimapButton()
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:AddLine("Synastria Questie Helper", 1, 1, 1)
         GameTooltip:AddLine("Left-click: Toggle UI", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("Right-click: Open Settings", 0.8, 0.8, 0.8)
         GameTooltip:Show()
     end)
     
@@ -75,6 +133,10 @@ function SynastriaQuestieHelper:CreateMinimapButton()
     button:SetScript("OnClick", function(self, btn)
         if btn == "LeftButton" then
             SynastriaQuestieHelper:ToggleUI()
+        elseif btn == "RightButton" then
+            -- Open settings panel
+            InterfaceOptionsFrame_OpenToCategory("Synastria Questie Helper")
+            InterfaceOptionsFrame_OpenToCategory("Synastria Questie Helper") -- Called twice due to Blizzard bug
         end
     end)
     
@@ -225,8 +287,8 @@ function SynastriaQuestieHelper:ScanQuests()
     
     -- Check cooldown
     local now = GetTime()
-    if self.lastScanTime and (now - self.lastScanTime) < 10 then
-        local remaining = math.ceil(10 - (now - self.lastScanTime))
+    if self.lastScanTime and (now - self.lastScanTime) < 2 then
+        local remaining = math.ceil(2 - (now - self.lastScanTime))
         self:Print(string.format("Scan on cooldown. %d seconds remaining.", remaining))
         return
     end
@@ -931,10 +993,16 @@ function SynastriaQuestieHelper:UpdateQuestList()
         -- Check faction and level compatibility
         local wrongFaction = not self:IsQuestForPlayerFaction(quest.id)
         local levelInfo = self:GetQuestLevelInfo(quest.id)
+        local levelTooLow = levelInfo and levelInfo.tooLow
         
-        -- Build header with warnings
-        local headerText
-        local warnings = {}
+        -- Skip quest if it doesn't match filter settings
+        if (wrongFaction and not self.db.profile.showWrongFaction) or
+           (levelTooLow and not self.db.profile.showLevelTooLow) then
+            -- Skip this quest based on filter settings
+        else
+            -- Build header with warnings
+            local headerText
+            local warnings = {}
         
         if wrongFaction then
             table.insert(warnings, "Wrong Faction")
@@ -1142,6 +1210,7 @@ function SynastriaQuestieHelper:UpdateQuestList()
             spacer:SetText(" ")
             spacer:SetFullWidth(true)
             self.scroll:AddChild(spacer)
+        end -- end filter check (showWrongFaction/showHighLevel)
         end -- end if IsQuestReal
     end
 end
