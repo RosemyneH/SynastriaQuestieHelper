@@ -7,7 +7,7 @@
 ## Requirements
 
 - **Questie Addon**: Required for quest database and coordinate lookups https://github.com/Netrinil/Questie-335
-- **\[Optional\] TomTom Addon**: If TomTom is installed, it will add a waypoint when clicking the coordinates.
+- **\[Optional\] TomTom Addon**: If TomTom is installed, it will add a waypoint when clicking the coordinates https://www.curseforge.com/wow/addons/tomtom/files/439781
 
 ---
 
@@ -41,6 +41,26 @@
 ---
 
 ## Changelog
+
+### Version 1.3
+
+- Added configuration options accessible via right-click minimap button or addon settings
+  - Hide Completed Quests (default: enabled)
+  - Show Wrong Faction Quests (default: disabled)
+  - Show Quests You Can't Accept (default: disabled)
+  - Show Cross-Zone Quest Chains (default: enabled)
+  - Persist TomTom Waypoints (default: disabled)
+- Quests in other zones now display zone name with coordinates and create working TomTom waypoints
+- Show zone name alongside coordinates for better clarity
+- Simplified quest chain titles (removed quest count and reward info)
+- Filter out beta/test quests that aren't actually in the game
+- Show faction requirements (Alliance/Horde) with warnings
+- Display level requirements with warnings for quests you can't accept yet
+- Support for creating waypoints in other zones
+- Optional persistence control for waypoints
+- **Bug Fixes**:
+  - Fixed keyboard lockup issue when addon frame is open
+  - Fixed Wowhead URL
 
 ### Version 1.2
 
