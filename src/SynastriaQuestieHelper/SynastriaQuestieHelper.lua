@@ -990,9 +990,22 @@ function SynastriaQuestieHelper:UpdateQuestList()
         local rewardCount = 0
         for _ in pairs(chainRewards) do rewardCount = rewardCount + 1 end
         
-        -- Check faction and level compatibility
-        local wrongFaction = not self:IsQuestForPlayerFaction(quest.id)
-        local levelInfo = self:GetQuestLevelInfo(quest.id)
+        -- Find the next available quest in the chain (first non-completed quest)
+        local nextAvailableQuest = nil
+        for _, chainQuest in ipairs(chain) do
+            local status = self:GetQuestStatus(chainQuest.id)
+            if status ~= "completed" then
+                nextAvailableQuest = chainQuest
+                break
+            end
+        end
+        
+        -- Use the next available quest for faction/level checks, or the final quest if all completed
+        local checkQuestId = nextAvailableQuest and nextAvailableQuest.id or quest.id
+        
+        -- Check faction and level compatibility for the next available quest
+        local wrongFaction = not self:IsQuestForPlayerFaction(checkQuestId)
+        local levelInfo = self:GetQuestLevelInfo(checkQuestId)
         local levelTooLow = levelInfo and levelInfo.tooLow
         
         -- Skip quest if it doesn't match filter settings
@@ -1009,8 +1022,6 @@ function SynastriaQuestieHelper:UpdateQuestList()
         end
         if levelInfo and levelInfo.tooLow then
             table.insert(warnings, string.format("Requires Level %d", levelInfo.requiredLevel))
-        elseif levelInfo and levelInfo.veryHigh then
-            table.insert(warnings, string.format("Level %d Quest", levelInfo.questLevel))
         end
         
         if rewardCount > 0 then
@@ -1026,11 +1037,9 @@ function SynastriaQuestieHelper:UpdateQuestList()
         headerLabel:SetText(headerText)
         headerLabel:SetFullWidth(true)
         
-        -- Color header: red if wrong faction or too low level, orange if very high level, gold otherwise
+        -- Color header: red if wrong faction or too low level, gold otherwise
         if wrongFaction or (levelInfo and levelInfo.tooLow) then
             headerLabel:SetColor(1, 0.3, 0.3) -- Red for unavailable
-        elseif levelInfo and levelInfo.veryHigh then
-            headerLabel:SetColor(1, 0.65, 0) -- Orange for high level
         else
             headerLabel:SetColor(1, 0.82, 0) -- Gold for normal
         end
@@ -1100,7 +1109,7 @@ function SynastriaQuestieHelper:UpdateQuestList()
                                 end
                             elseif button == "RightButton" then
                                 -- Show copyable wowhead link popup
-                                local url = string.format("https://www.classic.wowhead.com/quest=%d", chainQuest.id)
+                                local url = string.format("https://www.wowhead.com/wotlk/quest=%d", chainQuest.id)
                                 self:ShowCopyableURL(url)
                             end
                         end)
