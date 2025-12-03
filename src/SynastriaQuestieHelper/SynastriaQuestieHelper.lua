@@ -21,6 +21,7 @@ function SynastriaQuestieHelper:OnInitialize()
             showWrongFaction = false, -- Show quests for other faction
             showLevelTooLow = false, -- Show quests where player is below required level
             showCrossZoneChains = true, -- Show quest chains that span multiple zones
+            persistWaypoints = false, -- Save waypoints between sessions
             framePos = {}, -- Store frame position and size
             minimapButton = {
                 hide = false,
@@ -89,6 +90,16 @@ function SynastriaQuestieHelper:SetupOptions()
                         get = function() return self.db.profile.showCrossZoneChains end,
                         set = function(_, value)
                             self.db.profile.showCrossZoneChains = value
+                        end,
+                    },
+                    persistWaypoints = {
+                        name = "Persist TomTom Waypoints",
+                        desc = "Save created waypoints between sessions (requires TomTom)",
+                        type = "toggle",
+                        order = 5,
+                        get = function() return self.db.profile.persistWaypoints end,
+                        set = function(_, value)
+                            self.db.profile.persistWaypoints = value
                         end,
                     },
                 },
@@ -282,26 +293,53 @@ function SynastriaQuestieHelper:AddTomTomWaypoint(x, y, zoneId, title)
     local zoneName = self:GetZoneName(zoneId)
     
     if zoneName then
-        -- Execute TomTom's /way command directly with zone name
-        local wayCmd = string.format("%s %.1f %.1f %s", zoneName, x, y, title or "")
-        SlashCmdList["TOMTOM_WAY"](wayCmd)
+        -- Build a zone list like TomTom does
+        local zlist = {}
+        for cidx, c in ipairs({GetMapContinents()}) do
+            for zidx, z in ipairs({GetMapZones(cidx)}) do
+                zlist[z:lower():gsub("[%L]", "")] = {cidx, zidx, z}
+            end
+        end
         
-        -- Find the waypoint and set crazy arrow
+        -- Fuzzy match the zone name
+        local matches = {}
+        local searchZone = zoneName:lower():gsub("[%L]", "")
+        
+        for z, entry in pairs(zlist) do
+            if z:match(searchZone) then
+                table.insert(matches, entry)
+            end
+        end
+        
+        local uid
+        if #matches == 1 then
+            -- Found the zone, use AddZWaypoint directly with configurable persistence
+            local c, z, name = unpack(matches[1])
+            local persistent = self.db.profile.persistWaypoints
+            uid = TomTom:AddZWaypoint(c, z, x, y, title or "Quest Location", persistent, true, true)
+        else
+            -- Fallback to /way command if we can't resolve the zone
+            local wayCmd = string.format("%s %.1f %.1f %s", zoneName, x, y, title or "")
+            SlashCmdList["TOMTOM_WAY"](wayCmd)
+        end
+        
+        -- Set crazy arrow
         self:ScheduleTimer(function()
-            if TomTom.waypoints then
-                -- Look for a waypoint matching our coordinates and title
-                for uid, data in pairs(TomTom.waypoints) do
+            if not uid and TomTom.waypoints then
+                -- If we used /way command, find the waypoint
+                for id, data in pairs(TomTom.waypoints) do
                     if data.title == (title or "") and 
                        data.x and data.y and
                        math.abs(data.x - x) < 0.5 and 
                        math.abs(data.y - y) < 0.5 then
-                        -- Found our waypoint, set the arrow
-                        if TomTom.profile and TomTom.profile.arrow and TomTom.profile.arrow.arrival then
-                            TomTom:SetCrazyArrow(uid, TomTom.profile.arrow.arrival, title)
-                        end
+                        uid = id
                         break
                     end
                 end
+            end
+            
+            if uid and TomTom.profile and TomTom.profile.arrow and TomTom.profile.arrow.arrival then
+                TomTom:SetCrazyArrow(uid, TomTom.profile.arrow.arrival, title)
             end
         end, 0.1)
     else
@@ -1104,7 +1142,7 @@ function SynastriaQuestieHelper:UpdateQuestList()
             -- Skip this quest based on filter settings
         else
             -- Build header with warnings
-            local headerText
+            local headerText = quest.name
             local warnings = {}
         
         if wrongFaction then
@@ -1112,12 +1150,6 @@ function SynastriaQuestieHelper:UpdateQuestList()
         end
         if levelInfo and levelInfo.tooLow then
             table.insert(warnings, string.format("Requires Level %d", levelInfo.requiredLevel))
-        end
-        
-        if rewardCount > 0 then
-            headerText = string.format("%s (Chain: %d quests, %d with rewards)", quest.name, #chain, rewardCount)
-        else
-            headerText = string.format("%s (Chain: %d quests)", quest.name, #chain)
         end
         
         if #warnings > 0 then
