@@ -42,6 +42,11 @@
 
 ## Changelog
 
+### Version 1.6
+
+- Fix sometimes showing other factions quests
+- Added list of quests in questlog that never result in an attunable reward
+
 ### Version 1.5
 
 - Don't show header of completed quests
