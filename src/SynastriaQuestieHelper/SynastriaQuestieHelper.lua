@@ -737,17 +737,42 @@ function SynastriaQuestieHelper:PerformQuestieScan(zoneId)
                     end
                     
                     if shouldInclude then
-                        -- Group by the final quest's zone (or use zoneId if unknown)
-                        local targetZone = questZone or zoneId
-                        if not questsByZone[targetZone] then
-                            questsByZone[targetZone] = {}
+                        -- Only add this quest if it's not a prerequisite for another quest with rewards in the same zone
+                        -- This prevents showing intermediate quests as separate chains
+                        local isPrerequisite = false
+                        
+                        -- Check if any other quest with rewards has this as a prerequisite
+                        for otherQuestId, _ in pairs(self.QuestieDB.QuestPointers) do
+                            if otherQuestId ~= questId and self:IsQuestReal(otherQuestId) then
+                                local otherRewards = self:GetQuestRewardsFromItemDB(otherQuestId)
+                                if otherRewards and #otherRewards > 0 then
+                                    -- Check if this quest is in the other quest's chain
+                                    local otherChain = self:GetQuestChain(otherQuestId)
+                                    for _, chainQuest in ipairs(otherChain) do
+                                        if chainQuest.id == questId and chainQuest.id ~= otherQuestId then
+                                            -- This quest is a prerequisite, don't add it separately
+                                            isPrerequisite = true
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+                            if isPrerequisite then break end
                         end
                         
-                        table.insert(questsByZone[targetZone], {
-                            id = questId,
-                            name = questData.name,
-                            reward = nil
-                        })
+                        if not isPrerequisite then
+                            -- Group by the final quest's zone (or use zoneId if unknown)
+                            local targetZone = questZone or zoneId
+                            if not questsByZone[targetZone] then
+                                questsByZone[targetZone] = {}
+                            end
+                            
+                            table.insert(questsByZone[targetZone], {
+                                id = questId,
+                                name = questData.name,
+                                reward = nil
+                            })
+                        end
                     end
                 end
             end
