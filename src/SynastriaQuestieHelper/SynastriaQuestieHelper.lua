@@ -13,6 +13,7 @@ SynastriaQuestieHelper.isLoading = false
 SynastriaQuestieHelper.coordCache = {}
 SynastriaQuestieHelper.chainCache = {} -- Cache quest chains
 SynastriaQuestieHelper.rewardCache = {} -- Cache quest rewards
+SynastriaQuestieHelper.cachesBuilt = false -- Track if we've built starter caches
 
 function SynastriaQuestieHelper:OnInitialize()
     self.db = LibStub("AceDB-3.0"):New("SynastriaQuestieHelperDB", {
@@ -427,6 +428,58 @@ function SynastriaQuestieHelper:AddTomTomWaypoint(x, y, zoneId, title)
     end
 end
 
+function SynastriaQuestieHelper:BuildStarterCache()
+    if self.cachesBuilt or not self.QuestieDB then
+        return
+    end
+    
+    -- Build cache of quest starters in one pass
+    if self.QuestieDB.NPCPointers then
+        for npcId in pairs(self.QuestieDB.NPCPointers) do
+            local questStarts = self.QuestieDB.QueryNPCSingle(npcId, "questStarts")
+            if questStarts and type(questStarts) == "table" then
+                local spawns = self.QuestieDB.QueryNPCSingle(npcId, "spawns")
+                if spawns and type(spawns) == "table" then
+                    for zoneId, coords in pairs(spawns) do
+                        if coords and coords[1] and coords[1][1] and coords[1][2] then
+                            -- Cache all quests started by this NPC
+                            for _, questId in ipairs(questStarts) do
+                                if not self.coordCache[questId] then
+                                    self.coordCache[questId] = {x = coords[1][1], y = coords[1][2], zoneId = zoneId}
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Build cache of quest starters from objects
+    if self.QuestieDB.ObjectPointers then
+        for objId in pairs(self.QuestieDB.ObjectPointers) do
+            local questStarts = self.QuestieDB.QueryObjectSingle(objId, "questStarts")
+            if questStarts and type(questStarts) == "table" then
+                local spawns = self.QuestieDB.QueryObjectSingle(objId, "spawns")
+                if spawns and type(spawns) == "table" then
+                    for zoneId, coords in pairs(spawns) do
+                        if coords and coords[1] and coords[1][1] and coords[1][2] then
+                            -- Cache all quests started by this object
+                            for _, questId in ipairs(questStarts) do
+                                if not self.coordCache[questId] then
+                                    self.coordCache[questId] = {x = coords[1][1], y = coords[1][2], zoneId = zoneId}
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    self.cachesBuilt = true
+end
+
 function SynastriaQuestieHelper:ScanQuests()
     if self.isScanning then
         self:Print("Scan already in progress.")
@@ -459,6 +512,11 @@ function SynastriaQuestieHelper:ScanQuests()
         self.isScanning = false
         self.isLoading = false
         return
+    end
+    
+    -- Build starter cache on first scan
+    if not self.cachesBuilt then
+        self:BuildStarterCache()
     end
     
     -- Get current zone using GetRealZoneText
@@ -559,7 +617,6 @@ function SynastriaQuestieHelper:PerformQuestieScan(zoneId)
     
     local questsByZone = {} -- Group quests by zoneOrSort
     local checkedCount = 0
-    local questsWithChains = {} -- Track which quests belong in this zone (including chain members)
     
     -- Iterate through all quests in Questie's database
     for questId, _ in pairs(self.QuestieDB.QuestPointers) do
@@ -580,40 +637,51 @@ function SynastriaQuestieHelper:PerformQuestieScan(zoneId)
                     local shouldInclude = false
                     local questZone = nil
                     
-                    -- Get this quest's zone
+                    -- Check zoneOrSort first (fastest)
                     if questData.zoneOrSort and questData.zoneOrSort > 0 then
                         questZone = questData.zoneOrSort
-                    else
-                        -- Fallback to starter location zone
-                        local x, y, starterZoneId = self:GetQuestStarterCoords(questId)
-                        if starterZoneId then
+                        if questZone == zoneId then
+                            shouldInclude = true
+                        end
+                    end
+                    
+                    -- Only check starter if zoneOrSort didn't match
+                    if not shouldInclude then
+                        local starterX, starterY, starterZoneId = self:GetQuestStarterCoords(questId)
+                        if starterZoneId == zoneId then
+                            shouldInclude = true
+                            questZone = zoneId
+                        elseif not questZone then
+                            -- Use starter zone as fallback if no zoneOrSort
                             questZone = starterZoneId
                         end
                     end
                     
-                    -- If this quest is in the current zone, include it
-                    if questZone == zoneId then
-                        shouldInclude = true
-                    elseif self.db.profile.showCrossZoneChains then
-                        -- Only check chain if cross-zone chains are enabled
-                        -- Check if any quest in the chain is in the current zone
+                    -- If still not included, check chain if cross-zone is enabled
+                    if not shouldInclude and self.db.profile.showCrossZoneChains then
+                        -- Get chain once and cache it
                         local chain = self:GetQuestChain(questId)
                         for _, chainQuest in ipairs(chain) do
-                            local chainQuestData = self.QuestieDB.GetQuest(chainQuest.id)
-                            if chainQuestData then
-                                local chainZone = nil
-                                if chainQuestData.zoneOrSort and chainQuestData.zoneOrSort > 0 then
-                                    chainZone = chainQuestData.zoneOrSort
-                                else
-                                    local x, y, starterZoneId = self:GetQuestStarterCoords(chainQuest.id)
-                                    if starterZoneId then
-                                        chainZone = starterZoneId
+                            -- Skip checking the quest we already checked
+                            if chainQuest.id ~= questId then
+                                local chainQuestData = self.QuestieDB.GetQuest(chainQuest.id)
+                                if chainQuestData then
+                                    -- Check zoneOrSort first
+                                    if chainQuestData.zoneOrSort and chainQuestData.zoneOrSort > 0 then
+                                        if chainQuestData.zoneOrSort == zoneId then
+                                            shouldInclude = true
+                                            break
+                                        end
                                     end
-                                end
-                                
-                                if chainZone == zoneId then
-                                    shouldInclude = true
-                                    break
+                                    
+                                    -- Only check starter if zoneOrSort didn't match
+                                    if not shouldInclude then
+                                        local chainStarterX, chainStarterY, chainStarterZoneId = self:GetQuestStarterCoords(chainQuest.id)
+                                        if chainStarterZoneId == zoneId then
+                                            shouldInclude = true
+                                            break
+                                        end
+                                    end
                                 end
                             end
                         end
@@ -717,76 +785,21 @@ function SynastriaQuestieHelper:GetQuestRewardsFromItemDB(questId)
     return self.questItemLookup[questId] or {}
 end
 
--- Get quest starter coordinates from Questie
+-- Get quest starter coordinates from Questie (uses pre-built cache)
 function SynastriaQuestieHelper:GetQuestStarterCoords(questId)
     if not self.QuestieDB then return nil end
     
-    -- Check cache first
+    -- Check cache (should always be populated after BuildStarterCache)
     if self.coordCache[questId] ~= nil then
         local cached = self.coordCache[questId]
-        if cached then
+        if cached and cached.x then
             return cached.x, cached.y, cached.zoneId
         else
             return nil -- Cached negative result
         end
     end
     
-    -- Check NPCs first
-    if self.QuestieDB.NPCPointers then
-        for npcId in pairs(self.QuestieDB.NPCPointers) do
-            local npcData = self.QuestieDB.QueryNPCSingle(npcId, "questStarts")
-            if npcData and type(npcData) == "table" then
-                -- Check if this NPC starts our quest
-                for _, qId in ipairs(npcData) do
-                    if qId == questId then
-                        -- Found NPC that starts this quest, get spawns
-                        local spawns = self.QuestieDB.QueryNPCSingle(npcId, "spawns")
-                        if spawns and type(spawns) == "table" then
-                            -- spawns is {[zoneId] = {{x,y}, {x,y}}}
-                            for zoneId, coords in pairs(spawns) do
-                                if coords and coords[1] and coords[1][1] and coords[1][2] then
-                                    -- Cache the result
-                                    self.coordCache[questId] = {x = coords[1][1], y = coords[1][2], zoneId = zoneId}
-                                    return coords[1][1], coords[1][2], zoneId
-                                end
-                            end
-                        end
-                        break
-                    end
-                end
-            end
-        end
-    end
-    
-    -- Check Objects if no NPC found
-    if self.QuestieDB.ObjectPointers then
-        for objId in pairs(self.QuestieDB.ObjectPointers) do
-            local objData = self.QuestieDB.QueryObjectSingle(objId, "questStarts")
-            if objData and type(objData) == "table" then
-                -- Check if this object starts our quest
-                for _, qId in ipairs(objData) do
-                    if qId == questId then
-                        -- Found object that starts this quest, get spawns
-                        local spawns = self.QuestieDB.QueryObjectSingle(objId, "spawns")
-                        if spawns and type(spawns) == "table" then
-                            -- spawns is {[zoneId] = {{x,y}, {x,y}}}
-                            for zoneId, coords in pairs(spawns) do
-                                if coords and coords[1] and coords[1][1] and coords[1][2] then
-                                    -- Cache the result
-                                    self.coordCache[questId] = {x = coords[1][1], y = coords[1][2], zoneId = zoneId}
-                                    return coords[1][1], coords[1][2], zoneId
-                                end
-                            end
-                        end
-                        break
-                    end
-                end
-            end
-        end
-    end
-    
-    -- Cache nil result to avoid repeated lookups
-    self.coordCache[questId] = false
+    -- Cache miss (shouldn't happen after BuildStarterCache, but handle it)
     return nil
 end
 
