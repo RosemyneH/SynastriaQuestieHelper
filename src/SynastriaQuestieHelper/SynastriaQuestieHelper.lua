@@ -1334,40 +1334,52 @@ function SynastriaQuestieHelper:UpdateQuestList()
            (levelTooLow and not self.db.profile.showLevelTooLow) then
             -- Skip this quest based on filter settings
         else
-            -- Build header with warnings
-            local headerText = quest.name
-            local warnings = {}
-        
-        if wrongFaction then
-            table.insert(warnings, "Wrong Faction")
-        end
-        if levelInfo and levelInfo.tooLow then
-            table.insert(warnings, string.format("Requires Level %d", levelInfo.requiredLevel))
-        end
-        
-        if #warnings > 0 then
-            headerText = headerText .. " [" .. table.concat(warnings, ", ") .. "]"
-        end
-        
-        headerLabel:SetText(headerText)
-        headerLabel:SetFullWidth(true)
-        
-        -- Color header: red if wrong faction or too low level, gold otherwise
-        if wrongFaction or (levelInfo and levelInfo.tooLow) then
-            headerLabel:SetColor(1, 0.3, 0.3) -- Red for unavailable
-        else
-            headerLabel:SetColor(1, 0.82, 0) -- Gold for normal
-        end
-        
-        headerLabel:SetFont(GameFontNormal:GetFont(), 14, "OUTLINE")
-        self.scroll:AddChild(headerLabel)
-        
-        -- Always show chain (no collapse)
-        for i, chainQuest in ipairs(chain) do
+            -- First, check if any quest in the chain will be displayed
+            local hasVisibleQuests = false
+            for i, chainQuest in ipairs(chain) do
                 local status = self:GetQuestStatus(chainQuest.id)
-                
-                -- Check if we should hide completed quests
                 if not (self.db.profile.hideCompleted and status == "completed") then
+                    hasVisibleQuests = true
+                    break
+                end
+            end
+            
+            -- Only show header and chain if there are visible quests
+            if hasVisibleQuests then
+                -- Build header with warnings
+                local headerText = quest.name
+                local warnings = {}
+            
+                if wrongFaction then
+                    table.insert(warnings, "Wrong Faction")
+                end
+                if levelInfo and levelInfo.tooLow then
+                    table.insert(warnings, string.format("Requires Level %d", levelInfo.requiredLevel))
+                end
+                
+                if #warnings > 0 then
+                    headerText = headerText .. " [" .. table.concat(warnings, ", ") .. "]"
+                end
+                
+                headerLabel:SetText(headerText)
+                headerLabel:SetFullWidth(true)
+                
+                -- Color header: red if wrong faction or too low level, gold otherwise
+                if wrongFaction or (levelInfo and levelInfo.tooLow) then
+                    headerLabel:SetColor(1, 0.3, 0.3) -- Red for unavailable
+                else
+                    headerLabel:SetColor(1, 0.82, 0) -- Gold for normal
+                end
+                
+                headerLabel:SetFont(GameFontNormal:GetFont(), 14, "OUTLINE")
+                self.scroll:AddChild(headerLabel)
+                
+                -- Always show chain (no collapse)
+                for i, chainQuest in ipairs(chain) do
+                    local status = self:GetQuestStatus(chainQuest.id)
+                    
+                    -- Check if we should hide completed quests
+                    if not (self.db.profile.hideCompleted and status == "completed") then
                     local chainLabel = AceGUI:Create("Label")
                     
                     -- Use numbers for all quests in chain
@@ -1537,12 +1549,13 @@ function SynastriaQuestieHelper:UpdateQuestList()
                 end
             end
             
-            -- Add spacing between chains
+            -- Add spacing between chains (only if we displayed the header)
             local spacer = AceGUI:Create("Label")
             spacer:SetText(" ")
             spacer:SetFullWidth(true)
             self.scroll:AddChild(spacer)
-        end -- end filter check (showWrongFaction/showHighLevel)
+            end -- end hasVisibleQuests check
+        end -- end filter check (showWrongFaction/showLevelTooLow)
         end -- end if IsQuestReal
     end
 end
