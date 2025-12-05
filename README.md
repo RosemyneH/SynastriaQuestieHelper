@@ -42,6 +42,12 @@
 
 ## Changelog
 
+### Version 1.5
+
+- Don't show header of completed quests
+- Fixed dungeons not showing quests
+- Show all relevant quests in a zone, even if the end reward is not in it
+
 ### Version 1.4
 
 - Added auto launch option (Xayia)
