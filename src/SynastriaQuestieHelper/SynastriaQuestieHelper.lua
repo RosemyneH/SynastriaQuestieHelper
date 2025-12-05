@@ -1293,6 +1293,115 @@ function SynastriaQuestieHelper:GetQuestLevelInfo(questId)
     }
 end
 
+function SynastriaQuestieHelper:AddNonAttunementQuestLogSection()
+    if not self.scroll then return end
+    
+    -- Only show if we have loaded quest data (not during loading)
+    if self.isLoading or not self.quests or #self.quests == 0 then
+        return
+    end
+    
+    local AceGUI = LibStub("AceGUI-3.0")
+    
+    -- Build a set of quest IDs that are in the main attunable list
+    -- We already have the quest IDs from self.quests, so just iterate once
+    local attunableQuestIds = {}
+    for _, quest in ipairs(self.quests) do
+        attunableQuestIds[quest.id] = true
+        
+        -- Also mark all quests in the chain using cached data
+        local chain = self.chainCache[quest.id]
+        if chain then
+            for _, chainQuest in ipairs(chain) do
+                attunableQuestIds[chainQuest.id] = true
+            end
+        end
+    end
+    
+    -- Scan quest log for quests that don't lead to attunable items
+    local nonAttunementQuests = {}
+    local numEntries = GetNumQuestLogEntries()
+    
+    for i = 1, numEntries do
+        local title, level, questTag, suggestedGroup, isHeader, isCollapsed, isComplete, isDaily, questId = GetQuestLogTitle(i)
+        if not isHeader and questId and not attunableQuestIds[questId] then
+            -- Check if this quest itself has attunable rewards
+            local itemDBRewards = self:GetQuestRewardsFromItemDB(questId)
+            if not itemDBRewards or #itemDBRewards == 0 then
+                -- No attunable rewards, add to non-attunable section
+                table.insert(nonAttunementQuests, {
+                    id = questId,
+                    name = title,
+                    level = level,
+                })
+            end
+        end
+    end
+    
+    -- Only show section if there are non-attunable quests
+    if #nonAttunementQuests > 0 then
+        -- Create collapsible header
+        local headerBtn = AceGUI:Create("Button")
+        headerBtn:SetText(string.format("Quest Log (%d non-attunable)", #nonAttunementQuests))
+        headerBtn:SetFullWidth(true)
+        headerBtn:SetHeight(22)
+        
+        -- Store collapsed state
+        if self.nonAttunableCollapsed == nil then
+            self.nonAttunableCollapsed = true -- Start collapsed
+        end
+        
+        headerBtn:SetCallback("OnClick", function()
+            self.nonAttunableCollapsed = not self.nonAttunableCollapsed
+            self:UpdateQuestList()
+        end)
+        
+        self.scroll:AddChild(headerBtn)
+        
+        -- Show quests if not collapsed
+        if not self.nonAttunableCollapsed then
+            for _, quest in ipairs(nonAttunementQuests) do
+                local questLabel = AceGUI:Create("Label")
+                questLabel:SetText(string.format("  [%d] %s", quest.level, quest.name))
+                questLabel:SetFullWidth(true)
+                questLabel:SetColor(0.7, 0.7, 0.7)
+                
+                -- Make clickable to show wowhead link
+                local labelFrame = questLabel.frame
+                if labelFrame then
+                    labelFrame:EnableMouse(true)
+                    labelFrame:SetScript("OnMouseDown", function(frame, button)
+                        if button == "RightButton" then
+                            local url = string.format("https://www.wowhead.com/wotlk/quest=%d", quest.id)
+                            self:ShowCopyableURL(url)
+                        end
+                    end)
+                    labelFrame:SetScript("OnEnter", function(frame)
+                        local label = frame:GetChildren()
+                        if label then
+                            label:SetAlpha(0.7)
+                        end
+                    end)
+                    labelFrame:SetScript("OnLeave", function(frame)
+                        local label = frame:GetChildren()
+                        if label then
+                            label:SetAlpha(1.0)
+                        end
+                    end)
+                end
+                
+                self.scroll:AddChild(questLabel)
+            end
+            
+            -- Add spacing after section
+            local spacer = AceGUI:Create("Label")
+            spacer:SetText(" ")
+            spacer:SetFullWidth(true)
+            self.scroll:AddChild(spacer)
+        end
+    end
+end
+
 function SynastriaQuestieHelper:UpdateQuestList()
     if not self.scroll then return end
     self.scroll:ReleaseChildren()
@@ -1318,6 +1427,9 @@ function SynastriaQuestieHelper:UpdateQuestList()
         self.scroll:AddChild(loadingLabel)
         return
     end
+    
+    -- Add section for quest log quests without attunable rewards
+    self:AddNonAttunementQuestLogSection()
     
     for _, quest in ipairs(self.quests) do
         -- Skip beta/test quests
