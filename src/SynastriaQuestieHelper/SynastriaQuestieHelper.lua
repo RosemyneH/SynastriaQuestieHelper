@@ -1231,27 +1231,44 @@ function SynastriaQuestieHelper:IsQuestForPlayerFaction(questId)
     if not self.QuestieDB then return true end
     
     local requiredRaces = self.QuestieDB.QueryQuestSingle(questId, "requiredRaces")
-    if not requiredRaces or requiredRaces == 0 then
-        return true -- No race restriction
+    
+    -- If there's a race requirement, check it
+    if requiredRaces and requiredRaces ~= 0 then
+        -- Get player's race
+        local _, playerRace = UnitRace("player")
+        if not playerRace then return true end
+        
+        -- Lazy-load race keys from QuestieDB
+        if not self.raceKeys and self.QuestieDB and self.QuestieDB.raceKeys then
+            self.raceKeys = self.QuestieDB.raceKeys
+        end
+        
+        if not self.raceKeys then return true end
+        
+        -- Map player race name to bitmask value
+        -- UnitRace returns: Human, Orc, Dwarf, NightElf, Scourge (Undead), Tauren, Gnome, Troll, BloodElf, Draenei
+        local raceMap = {
+            ["Human"] = self.raceKeys.HUMAN,
+            ["Orc"] = self.raceKeys.ORC,
+            ["Dwarf"] = self.raceKeys.DWARF,
+            ["NightElf"] = self.raceKeys.NIGHT_ELF,
+            ["Scourge"] = self.raceKeys.UNDEAD, -- Undead is called "Scourge" by UnitRace
+            ["Tauren"] = self.raceKeys.TAUREN,
+            ["Gnome"] = self.raceKeys.GNOME,
+            ["Troll"] = self.raceKeys.TROLL,
+            ["BloodElf"] = self.raceKeys.BLOOD_ELF,
+            ["Draenei"] = self.raceKeys.DRAENEI,
+        }
+        
+        local raceMask = raceMap[playerRace]
+        if not raceMask then return true end
+        
+        -- Check if player's race is in the bitmask
+        return bit.band(requiredRaces, raceMask) ~= 0
     end
     
-    -- Get player's race
-    local _, playerRace = UnitRace("player")
-    if not playerRace then return true end
-    
-    -- Lazy-load race keys from QuestieDB
-    if not self.raceKeys and self.QuestieDB and self.QuestieDB.raceKeys then
-        self.raceKeys = self.QuestieDB.raceKeys
-    end
-    
-    if not self.raceKeys then return true end
-    
-    -- Map player race to bitmask
-    local raceMask = self.raceKeys[string.upper(playerRace)]
-    if not raceMask then return true end
-    
-    -- Check if player's race is in the bitmask
-    return bit.band(requiredRaces, raceMask) ~= 0
+    -- If no race requirement, assume quest is available
+    return true
 end
 
 -- Check if quest level is appropriate for player
