@@ -42,6 +42,11 @@
 
 ## Changelog
 
+### Version 1.7
+
+- Fixed some quests not showing up
+- Fixed some quests showing up in list of quests that doesn't result in an attunable reward when you leave the zone the quests start in
+
 ### Version 1.6
 
 - Fix sometimes showing other factions quests
