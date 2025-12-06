@@ -13,6 +13,7 @@ SynastriaQuestieHelper.isLoading = false
 SynastriaQuestieHelper.coordCache = {}
 SynastriaQuestieHelper.chainCache = {} -- Cache quest chains
 SynastriaQuestieHelper.rewardCache = {} -- Cache quest rewards
+SynastriaQuestieHelper.followUpCache = {} -- Cache: questId -> list of quests that require it as prerequisite
 SynastriaQuestieHelper.cachesBuilt = false -- Track if we've built starter caches
 
 function SynastriaQuestieHelper:OnInitialize()
@@ -477,6 +478,42 @@ function SynastriaQuestieHelper:BuildStarterCache()
         end
     end
     
+    -- Build cache of follow-up quests (questId -> quests that require it as prerequisite)
+    if self.QuestieDB.QuestPointers then
+        for questId in pairs(self.QuestieDB.QuestPointers) do
+            local success, questData = pcall(function() return self.QuestieDB.GetQuest(questId) end)
+            if success and questData then
+                -- Check preQuestSingle
+                if questData.preQuestSingle then
+                    local preq = questData.preQuestSingle
+                    if type(preq) == "table" then
+                        for _, prereqId in ipairs(preq) do
+                            if not self.followUpCache[prereqId] then
+                                self.followUpCache[prereqId] = {}
+                            end
+                            table.insert(self.followUpCache[prereqId], questId)
+                        end
+                    else
+                        if not self.followUpCache[preq] then
+                            self.followUpCache[preq] = {}
+                        end
+                        table.insert(self.followUpCache[preq], questId)
+                    end
+                end
+                
+                -- Check preQuestGroup
+                if questData.preQuestGroup and type(questData.preQuestGroup) == "table" then
+                    for _, prereqId in ipairs(questData.preQuestGroup) do
+                        if not self.followUpCache[prereqId] then
+                            self.followUpCache[prereqId] = {}
+                        end
+                        table.insert(self.followUpCache[prereqId], questId)
+                    end
+                end
+            end
+        end
+    end
+    
     self.cachesBuilt = true
 end
 
@@ -925,6 +962,7 @@ function SynastriaQuestieHelper:GetQuestChain(questId)
         end
     end
     
+    -- First, go backwards to find the start of the chain
     while current and not visited[current] do
         visited[current] = true
         
@@ -971,6 +1009,53 @@ function SynastriaQuestieHelper:GetQuestChain(questId)
             end
         else
             break
+        end
+    end
+    
+    -- Now go forwards from the last quest in the chain to find follow-up quests
+    if #chain > 0 then
+        local lastQuest = chain[#chain].id
+        current = lastQuest
+        visited = {[lastQuest] = true} -- Reset visited but mark the last quest
+        
+        while current do
+            local success, questData = pcall(function() return self.QuestieDB.GetQuest(current) end)
+            
+            if success and questData then
+                local nextQuest = questData.nextQuestInChain
+                
+                -- If nextQuestInChain is not set or is 0, check the follow-up cache
+                if (not nextQuest or nextQuest == 0) and self.followUpCache[current] then
+                    local followUps = self.followUpCache[current]
+                    -- Pick the first valid follow-up quest
+                    for _, followUpId in ipairs(followUps) do
+                        if not visited[followUpId] and self:IsQuestReal(followUpId) then
+                            nextQuest = followUpId
+                            break
+                        end
+                    end
+                end
+                
+                if nextQuest and not visited[nextQuest] then
+                    visited[nextQuest] = true
+                    
+                    -- Get the next quest's data
+                    local nextSuccess, nextQuestData = pcall(function() return self.QuestieDB.GetQuest(nextQuest) end)
+                    if nextSuccess and nextQuestData and self:IsQuestReal(nextQuest) then
+                        table.insert(chain, {
+                            id = nextQuest,
+                            name = nextQuestData.name or "Unknown"
+                        })
+                        current = nextQuest
+                    else
+                        break
+                    end
+                else
+                    break
+                end
+            else
+                break
+            end
         end
     end
     
@@ -1303,19 +1388,38 @@ function SynastriaQuestieHelper:AddNonAttunementQuestLogSection()
     
     local AceGUI = LibStub("AceGUI-3.0")
     
-    -- Build a set of quest IDs that are in the main attunable list
-    -- We already have the quest IDs from self.quests, so just iterate once
+    -- Build a set of ALL quest IDs that lead to attunable items (regardless of zone)
+    -- For each quest in the log, we'll check if its full chain has attunable rewards
     local attunableQuestIds = {}
-    for _, quest in ipairs(self.quests) do
-        attunableQuestIds[quest.id] = true
+    
+    -- Helper function to check if a quest or any in its chain has attunable rewards
+    local function hasAttunableInChain(questId)
+        if attunableQuestIds[questId] ~= nil then
+            return attunableQuestIds[questId]
+        end
         
-        -- Also mark all quests in the chain using cached data
-        local chain = self.chainCache[quest.id]
-        if chain then
-            for _, chainQuest in ipairs(chain) do
-                attunableQuestIds[chainQuest.id] = true
+        -- Get the full chain (forward to final quest)
+        local chain = self:GetQuestChain(questId)
+        if #chain == 0 then
+            chain = {{id = questId}}
+        end
+        
+        -- Check if any quest in the chain has attunable rewards
+        local result = false
+        for _, chainQuest in ipairs(chain) do
+            local itemDBRewards = self:GetQuestRewardsFromItemDB(chainQuest.id)
+            if itemDBRewards and #itemDBRewards > 0 then
+                result = true
+                break
             end
         end
+        
+        -- Cache the result for all quests in this chain
+        for _, chainQuest in ipairs(chain) do
+            attunableQuestIds[chainQuest.id] = result
+        end
+        
+        return result
     end
     
     -- Scan quest log for quests that don't lead to attunable items
@@ -1324,11 +1428,9 @@ function SynastriaQuestieHelper:AddNonAttunementQuestLogSection()
     
     for i = 1, numEntries do
         local title, level, questTag, suggestedGroup, isHeader, isCollapsed, isComplete, isDaily, questId = GetQuestLogTitle(i)
-        if not isHeader and questId and not attunableQuestIds[questId] then
-            -- Check if this quest itself has attunable rewards
-            local itemDBRewards = self:GetQuestRewardsFromItemDB(questId)
-            if not itemDBRewards or #itemDBRewards == 0 then
-                -- No attunable rewards, add to non-attunable section
+        if not isHeader and questId then
+            -- Use the helper function to check if this quest leads to attunable items
+            if not hasAttunableInChain(questId) then
                 table.insert(nonAttunementQuests, {
                     id = questId,
                     name = title,
