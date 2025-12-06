@@ -667,6 +667,7 @@ function SynastriaQuestieHelper:PerformQuestieScan(zoneId)
     
     local questsByZone = {} -- Group quests by zoneOrSort
     local checkedCount = 0
+    local addedChainSignatures = {} -- Track chain signatures to avoid duplicate chains
     
     -- Iterate through all quests in Questie's database
     for questId, _ in pairs(self.QuestieDB.QuestPointers) do
@@ -838,17 +839,31 @@ function SynastriaQuestieHelper:PerformQuestieScan(zoneId)
                         end
                         
                         if not isPrerequisite then
-                            -- Group by the final quest's zone (or use zoneId if unknown)
-                            local targetZone = questZone or zoneId
-                            if not questsByZone[targetZone] then
-                                questsByZone[targetZone] = {}
+                            -- Create a chain signature to detect duplicate chains
+                            local chain = self:GetQuestChain(questId)
+                            local chainIds = {}
+                            for _, chainQuest in ipairs(chain) do
+                                table.insert(chainIds, chainQuest.id)
                             end
+                            table.sort(chainIds)
+                            local chainSignature = table.concat(chainIds, ",")
                             
-                            table.insert(questsByZone[targetZone], {
-                                id = questId,
-                                name = questData.name,
-                                reward = nil
-                            })
+                            -- Check if we've already added this chain
+                            if not addedChainSignatures[chainSignature] then
+                                addedChainSignatures[chainSignature] = true
+                                
+                                -- Group by the final quest's zone (or use zoneId if unknown)
+                                local targetZone = questZone or zoneId
+                                if not questsByZone[targetZone] then
+                                    questsByZone[targetZone] = {}
+                                end
+                                
+                                table.insert(questsByZone[targetZone], {
+                                    id = questId,
+                                    name = questData.name,
+                                    reward = nil
+                                })
+                            end
                         end
                     end
                 end
