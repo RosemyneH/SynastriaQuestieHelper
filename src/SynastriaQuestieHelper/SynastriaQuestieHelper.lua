@@ -749,41 +749,38 @@ function SynastriaQuestieHelper:PerformQuestieScan(zoneId)
                     if not shouldInclude then
                         local objectives = self.QuestieDB.QueryQuestSingle(questId, "objectives")
                         if objectives and type(objectives) == "table" then
-                            -- objectives structure: {npcObjectives, itemObjectives, objectObjectives}
-                            -- Check all three types of objectives for items
-                            for objType = 1, 3 do
-                                if objectives[objType] and type(objectives[objType]) == "table" then
-                                    for _, itemList in ipairs(objectives[objType]) do
-                                        if itemList and type(itemList) == "table" then
-                                            for _, itemId in ipairs(itemList) do
-                                                if itemId and self.QuestieDB.QueryItemSingle then
-                                                    local itemDrops = self.QuestieDB.QueryItemSingle(itemId, "npcDrops")
-                                                    if itemDrops and type(itemDrops) == "table" then
-                                                        -- Check where the NPCs that drop this item spawn
-                                                        for _, npcId in ipairs(itemDrops) do
-                                                            if npcId and self.QuestieDB.QueryNPCSingle then
-                                                                local npcSpawns = self.QuestieDB.QueryNPCSingle(npcId, "spawns")
-                                                                if npcSpawns and type(npcSpawns) == "table" then
-                                                                    for spawnZoneId, _ in pairs(npcSpawns) do
-                                                                        if spawnZoneId == zoneId then
-                                                                            shouldInclude = true
-                                                                            questZone = zoneId
-                                                                            break
-                                                                        end
+                            -- objectives structure: {npcObjectives, gameObjectObjectives, itemObjectives}
+                            -- Only check itemObjectives (objectives[3]) for drops
+                            if objectives[3] and type(objectives[3]) == "table" then
+                                for _, itemList in ipairs(objectives[3]) do
+                                    if itemList and type(itemList) == "table" then
+                                        for _, itemId in ipairs(itemList) do
+                                            if itemId and self.QuestieDB.QueryItemSingle then
+                                                local itemDrops = self.QuestieDB.QueryItemSingle(itemId, "npcDrops")
+                                                if itemDrops and type(itemDrops) == "table" then
+                                                    -- Check where the NPCs that drop this item spawn
+                                                    for _, npcId in ipairs(itemDrops) do
+                                                        if npcId and self.QuestieDB.QueryNPCSingle then
+                                                            local npcSpawns = self.QuestieDB.QueryNPCSingle(npcId, "spawns")
+                                                            if npcSpawns and type(npcSpawns) == "table" then
+                                                                for spawnZoneId, _ in pairs(npcSpawns) do
+                                                                    if spawnZoneId == zoneId then
+                                                                        shouldInclude = true
+                                                                        questZone = zoneId
+                                                                        break
                                                                     end
                                                                 end
                                                             end
-                                                            if shouldInclude then break end
                                                         end
+                                                        if shouldInclude then break end
                                                     end
                                                 end
-                                                if shouldInclude then break end
                                             end
+                                            if shouldInclude then break end
                                         end
-                                        if shouldInclude then break end
                                     end
+                                    if shouldInclude then break end
                                 end
-                                if shouldInclude then break end
                             end
                         end
                     end
