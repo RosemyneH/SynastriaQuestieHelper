@@ -1,6 +1,5 @@
 local addonName, addonTable = ...
 local SynastriaQuestieHelper = LibStub("AceAddon-3.0"):NewAddon(addonName, "AceConsole-3.0", "AceEvent-3.0", "AceTimer-3.0")
-local SynastriaCoreLib = LibStub("SynastriaCoreLib-1.0", true)
 
 -- Constants
 local CHAT_MSG_SYSTEM = "CHAT_MSG_SYSTEM"
@@ -16,6 +15,7 @@ SynastriaQuestieHelper.rewardCache = {} -- Cache quest rewards
 SynastriaQuestieHelper.followUpCache = {} -- Cache: questId -> list of quests that require it as prerequisite
 SynastriaQuestieHelper.questToRewardQuestCache = {} -- Cache: questId -> final quest in chain with rewards (if any)
 SynastriaQuestieHelper.cachesBuilt = false -- Track if we've built starter caches
+SynastriaQuestieHelper.questRealCache = {} -- Cache: questId -> is valid/real
 
 function SynastriaQuestieHelper:OnInitialize()
     self.db = LibStub("AceDB-3.0"):New("SynastriaQuestieHelperDB", {
@@ -38,6 +38,7 @@ function SynastriaQuestieHelper:OnInitialize()
     }, true)
 
     self:RegisterChatCommand("synastriaquestiehelper", "OnSlashCommand")
+    self:RegisterChatCommand("sqh", "OnSlashCommand")
     
     -- Setup options
     self:SetupOptions()
@@ -302,12 +303,13 @@ function SynastriaQuestieHelper:OnEnable()
 end
 
 function SynastriaQuestieHelper:OnSlashCommand(input)
-    if input:trim() == "toggle" then
+    local command = tostring(input or ""):gsub("^%s*(.-)%s*$", "%1")
+    if command == "toggle" then
         self:ToggleUI()
-    elseif input:trim() == "reset" then
+    elseif command == "reset" then
         self:ResetFramePosition()
     else
-        self:Print("Usage: /synastriaquestiehelper [toggle, reset]")
+        self:Print("Usage: /synastriaquestiehelper or /sqh [toggle, reset]")
     end
 end
 
@@ -536,6 +538,8 @@ function SynastriaQuestieHelper:ScanQuests()
     self.isLoading = true
     self.quests = {} -- Clear previous results
     self.totalQuestCount = 0 -- Reset total count
+    self.rewardCache = {} -- Clear reward cache so progress checks are fresh each scan
+    self.questItemLookup = nil -- Rebuild item->quest lookup with current attune progress
     
     -- Update UI to show loading state
     self:UpdateQuestList()
@@ -618,6 +622,9 @@ end
 
 function SynastriaQuestieHelper:IsQuestReal(questId)
     if not self.QuestieDB then return true end
+    if self.questRealCache[questId] ~= nil then
+        return self.questRealCache[questId]
+    end
     
     -- Check if quest has any quest givers (startedBy) OR turn-in points (finishedBy)
     -- Beta/unavailable quests typically have no NPCs/objects to start or finish them
@@ -635,6 +642,7 @@ function SynastriaQuestieHelper:IsQuestReal(questId)
     
     -- Quest must have either a starter OR a finisher to be valid
     if not hasStarter and not hasFinisher then
+        self.questRealCache[questId] = false
         return false
     end
     
@@ -643,10 +651,12 @@ function SynastriaQuestieHelper:IsQuestReal(questId)
     if questFlags then
         local QUEST_FLAGS_UNAVAILABLE = 16384
         if bit.band(questFlags, QUEST_FLAGS_UNAVAILABLE) ~= 0 then
+            self.questRealCache[questId] = false
             return false
         end
     end
     
+    self.questRealCache[questId] = true
     return true
 end
 
@@ -686,12 +696,14 @@ function SynastriaQuestieHelper:PerformQuestieScan(zoneId)
                     -- Check all follow-up quests recursively
                     local visited = {[questId] = true}
                     local toCheck = {}
+                    local queueIndex = 1
                     for _, followUpId in ipairs(self.followUpCache[questId]) do
                         table.insert(toCheck, followUpId)
                     end
                     
-                    while #toCheck > 0 and (not itemDBRewards or #itemDBRewards == 0) do
-                        local checkId = table.remove(toCheck, 1)
+                    while queueIndex <= #toCheck and (not itemDBRewards or #itemDBRewards == 0) do
+                        local checkId = toCheck[queueIndex]
+                        queueIndex = queueIndex + 1
                         if not visited[checkId] then
                             visited[checkId] = true
                             local followUpRewards = self:GetQuestRewardsFromItemDB(checkId)
@@ -969,6 +981,22 @@ function SynastriaQuestieHelper:StopScanning()
     self:UpdateQuestList()
 end
 
+function SynastriaQuestieHelper:IsRewardItemEligible(itemId)
+    if not itemId then
+        return false
+    end
+
+    local canAttune = CanAttuneItemHelper(itemId)
+    local isAttunable = (canAttune == true or canAttune == 1)
+    local itemTags = GetItemTagsCustom and GetItemTagsCustom(itemId)
+    local hasRequiredTags = itemTags and bit.band(itemTags, 96) == 64 -- Has this item been attuned?
+
+    return isAttunable
+        and GetItemAttuneProgress(itemId) == 0
+        and GetItemAttuneForge(itemId) == -1
+        and hasRequiredTags
+end
+
 function SynastriaQuestieHelper:BuildQuestItemLookup()
     if self.questItemLookup then return end
     
@@ -986,7 +1014,7 @@ function SynastriaQuestieHelper:BuildQuestItemLookup()
     -- Build reverse lookup: questId -> {items that reward it}
     for itemId, _ in pairs(self.QuestieDB.ItemPointers) do
         -- Only check attunable items to reduce work
-        if SynastriaCoreLib and SynastriaCoreLib.IsAttunable(itemId) then
+        if self:IsRewardItemEligible(itemId) then
             local questRewards = self.QuestieDB.QueryItemSingle(itemId, "questRewards")
             if questRewards and type(questRewards) == "table" then
                 for _, rewardQuestId in ipairs(questRewards) do
@@ -1393,8 +1421,8 @@ function SynastriaQuestieHelper:GetQuestLogRewards(questId)
                     -- Extract item ID from the link
                     local itemLink = GetQuestLogItemLink("choice", j)
                     if itemLink then
-                        local itemId = tonumber(itemLink:match("item:(%d+)"))
-                        if itemId and SynastriaCoreLib and SynastriaCoreLib.IsAttunable(itemId) then
+                        local itemId = CustomExtractItemId(itemLink)
+                        if self:IsRewardItemEligible(itemId) then
                             table.insert(rewards, {id = itemId, isChoice = true})
                         end
                     end
@@ -1408,8 +1436,8 @@ function SynastriaQuestieHelper:GetQuestLogRewards(questId)
                 if name then
                     local itemLink = GetQuestLogItemLink("reward", j)
                     if itemLink then
-                        local itemId = tonumber(itemLink:match("item:(%d+)"))
-                        if itemId and SynastriaCoreLib and SynastriaCoreLib.IsAttunable(itemId) then
+                        local itemId = CustomExtractItemId(itemLink)
+                        if self:IsRewardItemEligible(itemId) then
                             table.insert(rewards, {id = itemId, isChoice = false})
                         end
                     end
@@ -1645,9 +1673,6 @@ function SynastriaQuestieHelper:UpdateQuestList()
         return
     end
     
-    -- Add section for quest log quests without attunable rewards
-    self:AddNonAttunementQuestLogSection()
-    
     for _, quest in ipairs(self.quests) do
         -- Skip beta/test quests
         if not self:IsQuestReal(quest.id) then
@@ -1843,8 +1868,9 @@ function SynastriaQuestieHelper:UpdateQuestList()
                         rewardGroup:SetFullWidth(true)
                         
                         for _, reward in ipairs(rewards) do
-                            local itemIcon = AceGUI:Create("Icon")
-                            local itemName, itemLink, itemQuality, _, _, _, _, _, _, itemTexture = GetItemInfo(reward.id)
+                            if self:IsRewardItemEligible(reward.id) then
+                                local itemIcon = AceGUI:Create("Icon")
+                                local itemName, itemLink, itemQuality, _, _, _, _, _, _, itemTexture = GetItemInfoCustom(reward.id)
                             
                             if itemTexture then
                                 itemIcon:SetImage(itemTexture)
@@ -1912,7 +1938,8 @@ function SynastriaQuestieHelper:UpdateQuestList()
                                 end)
                             end
                             
-                            rewardGroup:AddChild(itemIcon)
+                                rewardGroup:AddChild(itemIcon)
+                            end
                         end
                         
                         self.scroll:AddChild(rewardGroup)

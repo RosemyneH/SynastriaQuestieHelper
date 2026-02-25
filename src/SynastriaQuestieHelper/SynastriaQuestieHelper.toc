@@ -4,7 +4,7 @@
 ## Author: Elmegaard
 ## Version: 1.0
 ## SavedVariables: SynastriaQuestieHelperDB
-## OptionalDeps: Ace3, SynastriaCoreLib-1.0, Questie, TomTom
+## OptionalDeps: Ace3, Questie, TomTom
 
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.xml
@@ -16,7 +16,5 @@ Libs\Ace3\AceEvent-3.0\AceEvent-3.0.xml
 Libs\Ace3\AceTimer-3.0\AceTimer-3.0.xml
 Libs\Ace3\AceConfig-3.0\AceConfig-3.0.xml
 Libs\Ace3\AceDBOptions-3.0\AceDBOptions-3.0.xml
-
-Libs\SynastriaCoreLib-1.0\SynastriaCoreLib-1.0.xml
 
 SynastriaQuestieHelper.lua
