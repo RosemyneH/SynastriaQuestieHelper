@@ -1,8 +1,8 @@
 ## Interface: 30300
 ## Title: Synastria Questie Helper
 ## Notes: Helper for finding attunement quests on Synastria
-## Author: Elmegaard
-## Version: 1.0
+## Author: Elmegaard, Xayia, Qt
+## Version: 1.8
 ## SavedVariables: SynastriaQuestieHelperDB
 ## OptionalDeps: Ace3, Questie, TomTom
 
