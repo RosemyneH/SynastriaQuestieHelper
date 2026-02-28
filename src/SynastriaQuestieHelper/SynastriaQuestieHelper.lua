@@ -24,6 +24,8 @@ function SynastriaQuestieHelper:OnInitialize()
             showWrongFaction = false, -- Show quests for other faction
             showLevelTooLow = false, -- Show quests where player is below required level
             showCrossZoneChains = true, -- Show quest chains that span multiple zones
+            showAccountAttunable = false,
+            sortByDistance = true,
             persistWaypoints = false, -- Save waypoints between sessions
             framePos = {}, -- Store frame position and size
             transparency = 1.0, -- Window transparency (1.0 = opaque)
@@ -117,11 +119,37 @@ function SynastriaQuestieHelper:SetupOptions()
                             self.db.profile.showCrossZoneChains = value
                         end,
                     },
+                    showAccountAttunable = {
+                        name = "Check Account-Attunable Quests",
+                        desc = "Use account-wide attunement eligibility (IsAttunableBySomeone) instead of character-only checks",
+                        type = "toggle",
+                        order = 5,
+                        get = function() return self.db.profile.showAccountAttunable end,
+                        set = function(_, value)
+                            self.db.profile.showAccountAttunable = value
+                            self.questItemLookup = nil
+                            self.rewardCache = {}
+                            self:ScheduleTimer(function()
+                                self:ScanQuests()
+                            end, 0)
+                        end,
+                    },
+                    sortByDistance = {
+                        name = "Sort Quests by Distance",
+                        desc = "Order quests by nearest starter in your current zone",
+                        type = "toggle",
+                        order = 6,
+                        get = function() return self.db.profile.sortByDistance end,
+                        set = function(_, value)
+                            self.db.profile.sortByDistance = value
+                            self:UpdateQuestList()
+                        end,
+                    },
                     persistWaypoints = {
                         name = "Persist TomTom Waypoints",
                         desc = "Save created waypoints between sessions (requires TomTom)",
                         type = "toggle",
-                        order = 5,
+                        order = 7,
                         get = function() return self.db.profile.persistWaypoints end,
                         set = function(_, value)
                             self.db.profile.persistWaypoints = value
@@ -189,7 +217,7 @@ function SynastriaQuestieHelper:SetupOptions()
     }
     
     AceConfig:RegisterOptionsTable("SynastriaQuestieHelper", options)
-    AceConfigDialog:AddToBlizOptions("SynastriaQuestieHelper", "Synastria Questie Helper")
+    self.optionsPanel = AceConfigDialog:AddToBlizOptions("SynastriaQuestieHelper", "Synastria Questie Helper")
 end
 
 function SynastriaQuestieHelper:CreateMinimapButton()
@@ -237,9 +265,7 @@ function SynastriaQuestieHelper:CreateMinimapButton()
         if btn == "LeftButton" then
             SynastriaQuestieHelper:ToggleUI()
         elseif btn == "RightButton" then
-            -- Open settings panel
-            InterfaceOptionsFrame_OpenToCategory("Synastria Questie Helper")
-            InterfaceOptionsFrame_OpenToCategory("Synastria Questie Helper") -- Called twice due to Blizzard bug
+            SynastriaQuestieHelper:OpenOptionsPanel()
         end
     end)
     
@@ -304,12 +330,24 @@ end
 
 function SynastriaQuestieHelper:OnSlashCommand(input)
     local command = tostring(input or ""):gsub("^%s*(.-)%s*$", "%1")
-    if command == "toggle" then
+    if command == "" or command == "toggle" then
         self:ToggleUI()
+    elseif command == "options" or command == "config" or command == "settings" then
+        self:OpenOptionsPanel()
     elseif command == "reset" then
         self:ResetFramePosition()
     else
-        self:Print("Usage: /synastriaquestiehelper or /sqh [toggle, reset]")
+        self:Print("Usage: /synastriaquestiehelper or /sqh [toggle, options, reset]")
+    end
+end
+
+function SynastriaQuestieHelper:OpenOptionsPanel()
+    if self.optionsPanel then
+        InterfaceOptionsFrame_OpenToCategory(self.optionsPanel)
+        InterfaceOptionsFrame_OpenToCategory(self.optionsPanel)
+    else
+        InterfaceOptionsFrame_OpenToCategory("Synastria Questie Helper")
+        InterfaceOptionsFrame_OpenToCategory("Synastria Questie Helper")
     end
 end
 
@@ -986,8 +1024,14 @@ function SynastriaQuestieHelper:IsRewardItemEligible(itemId)
         return false
     end
 
-    local canAttune = CanAttuneItemHelper(itemId)
-    local isAttunable = (canAttune == true or canAttune == 1)
+    local isAttunable = false
+    if self.db and self.db.profile and self.db.profile.showAccountAttunable and IsAttunableBySomeone then
+        local accountAttunable = IsAttunableBySomeone(itemId)
+        isAttunable = (accountAttunable == true or accountAttunable == 1)
+    else
+        local canAttune = CanAttuneItemHelper(itemId)
+        isAttunable = (canAttune == true or canAttune == 1)
+    end
     local itemTags = GetItemTagsCustom and GetItemTagsCustom(itemId)
     local hasRequiredTags = itemTags and bit.band(itemTags, 96) == 64 -- Has this item been attuned?
 
@@ -1080,6 +1124,52 @@ function SynastriaQuestieHelper:GetZoneName(zoneId)
     end
     
     return nil
+end
+
+function SynastriaQuestieHelper:GetPlayerZonePosition()
+    local originalContinent = GetCurrentMapContinent and GetCurrentMapContinent() or nil
+    local originalZone = GetCurrentMapZone and GetCurrentMapZone() or nil
+
+    if SetMapToCurrentZone then
+        SetMapToCurrentZone()
+    end
+
+    local x, y = nil, nil
+    if GetPlayerMapPosition then
+        x, y = GetPlayerMapPosition("player")
+    end
+
+    if originalContinent and originalZone and originalContinent > 0 and originalZone > 0 and SetMapZoom then
+        SetMapZoom(originalContinent, originalZone)
+    end
+
+    if not x or not y or (x == 0 and y == 0) then
+        return nil
+    end
+
+    return x * 100, y * 100
+end
+
+function SynastriaQuestieHelper:GetQuestDistanceScore(questId, playerX, playerY, zoneId)
+    local bestDistance = math.huge
+    local chain = self:GetQuestChain(questId)
+    if #chain == 0 then
+        chain = {{id = questId}}
+    end
+
+    for _, chainQuest in ipairs(chain) do
+        local x, y, questZoneId = self:GetQuestStarterCoords(chainQuest.id)
+        if x and y and questZoneId and (not zoneId or questZoneId == zoneId) then
+            local dx = x - playerX
+            local dy = y - playerY
+            local distanceSq = (dx * dx) + (dy * dy)
+            if distanceSq < bestDistance then
+                bestDistance = distanceSq
+            end
+        end
+    end
+
+    return bestDistance
 end
 
 -- Get the full quest chain leading to this quest using Questie
@@ -1331,11 +1421,23 @@ function SynastriaQuestieHelper:CreateUI()
     -- Position it manually next to close button
     scanBtn.frame:SetParent(frame.frame)
     scanBtn.frame:ClearAllPoints()
-    scanBtn.frame:SetPoint("BOTTOMRIGHT", frame.frame, "BOTTOMRIGHT", -132, 16)
+    scanBtn.frame:SetPoint("BOTTOMRIGHT", frame.frame, "BOTTOMRIGHT", -236, 16)
     scanBtn.frame:SetFrameLevel(frame.frame:GetFrameLevel() + 10)
     scanBtn.frame:Show()
     
     self.scanButton = scanBtn
+
+    local optionsBtn = AceGUI:Create("Button")
+    optionsBtn:SetText("Options")
+    optionsBtn:SetWidth(100)
+    optionsBtn:SetHeight(22)
+    optionsBtn:SetCallback("OnClick", function() self:OpenOptionsPanel() end)
+    optionsBtn.frame:SetParent(frame.frame)
+    optionsBtn.frame:ClearAllPoints()
+    optionsBtn.frame:SetPoint("BOTTOMRIGHT", frame.frame, "BOTTOMRIGHT", -132, 16)
+    optionsBtn.frame:SetFrameLevel(frame.frame:GetFrameLevel() + 10)
+    optionsBtn.frame:Show()
+    self.optionsButton = optionsBtn
     
     -- Scroll Frame for List
     local scrollContainer = AceGUI:Create("SimpleGroup")
@@ -1582,6 +1684,24 @@ function SynastriaQuestieHelper:AddNonAttunementQuestLogSection()
             end
         end
     end
+
+    if self.db.profile.sortByDistance then
+        local playerX, playerY = self:GetPlayerZonePosition()
+        if playerX and playerY then
+            local distanceCache = {}
+            for _, quest in ipairs(nonAttunementQuests) do
+                distanceCache[quest.id] = self:GetQuestDistanceScore(quest.id, playerX, playerY, self.currentZoneId)
+            end
+            table.sort(nonAttunementQuests, function(a, b)
+                local da = distanceCache[a.id] or math.huge
+                local db = distanceCache[b.id] or math.huge
+                if da == db then
+                    return (a.name or "") < (b.name or "")
+                end
+                return da < db
+            end)
+        end
+    end
     
     -- Only show section if there are non-attunable quests
     if #nonAttunementQuests > 0 then
@@ -1673,7 +1793,30 @@ function SynastriaQuestieHelper:UpdateQuestList()
         return
     end
     
-    for _, quest in ipairs(self.quests) do
+    local orderedQuests = self.quests
+    if self.db.profile.sortByDistance then
+        local playerX, playerY = self:GetPlayerZonePosition()
+        if playerX and playerY then
+            orderedQuests = {}
+            for i, quest in ipairs(self.quests) do
+                orderedQuests[i] = quest
+            end
+            local distanceCache = {}
+            for _, quest in ipairs(orderedQuests) do
+                distanceCache[quest.id] = self:GetQuestDistanceScore(quest.id, playerX, playerY, self.currentZoneId)
+            end
+            table.sort(orderedQuests, function(a, b)
+                local da = distanceCache[a.id] or math.huge
+                local db = distanceCache[b.id] or math.huge
+                if da == db then
+                    return (a.name or "") < (b.name or "")
+                end
+                return da < db
+            end)
+        end
+    end
+
+    for _, quest in ipairs(orderedQuests) do
         -- Skip beta/test quests
         if not self:IsQuestReal(quest.id) then
             -- Skip this quest entirely
@@ -1956,4 +2099,6 @@ function SynastriaQuestieHelper:UpdateQuestList()
         end -- end filter check (showWrongFaction/showLevelTooLow)
         end -- end if IsQuestReal
     end
+
+    self:AddNonAttunementQuestLogSection()
 end
